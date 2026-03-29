@@ -5,7 +5,6 @@ import folium
 from streamlit_folium import folium_static
 import math
 from datetime import datetime
-import json
 
 st.set_page_config(layout="wide", page_title="无人机监测系统")
 
@@ -76,24 +75,25 @@ with st.sidebar:
 
 # ==================== 障碍物数据 ====================
 OBSTACLES = [
-    {"name": "教学楼1", "lat": 32.2320, "lon": 118.7488, "height": 30, "color": "orange"},
-    {"name": "教学楼2", "lat": 32.2332, "lon": 118.7490, "height": 35, "color": "orange"},
-    {"name": "图书馆", "lat": 32.2340, "lon": 118.7492, "height": 25, "color": "orange"},
-    {"name": "食堂", "lat": 32.2348, "lon": 118.7495, "height": 20, "color": "orange"},
-    {"name": "宿舍楼", "lat": 32.2355, "lon": 118.7498, "height": 28, "color": "orange"},
+    {"name": "教学楼1", "lat": 32.2320, "lon": 118.7488, "height": 30},
+    {"name": "教学楼2", "lat": 32.2332, "lon": 118.7490, "height": 35},
+    {"name": "图书馆", "lat": 32.2340, "lon": 118.7492, "height": 25},
+    {"name": "食堂", "lat": 32.2348, "lon": 118.7495, "height": 20},
+    {"name": "宿舍楼", "lat": 32.2355, "lon": 118.7498, "height": 28},
 ]
 
 # ==================== 创建地图函数 ====================
-def create_3d_map(lat_a, lon_a, lat_b, lon_b, obstacles, height):
-    """创建带障碍物的地图"""
-    
+def create_map(lat_a, lon_a, lat_b, lon_b, obstacles, height):
+    """创建地图"""
     center_lat = (lat_a + lat_b) / 2
     center_lon = (lon_a + lon_b) / 2
     
-    # 先用 OpenStreetMap 测试
+    # 使用高德卫星图
     m = folium.Map(
         location=[center_lat, center_lon],
-        zoom_start=17
+        zoom_start=17,
+        tiles='https://webst01.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}',
+        attr='高德地图'
     )
     
     # 添加航线
@@ -101,21 +101,22 @@ def create_3d_map(lat_a, lon_a, lat_b, lon_b, obstacles, height):
         locations=[[lat_a, lon_a], [lat_b, lon_b]],
         color='red',
         weight=5,
+        opacity=0.8,
         tooltip='飞行航线'
     ).add_to(m)
     
     # 添加起点A
     folium.Marker(
-        [lat_a, lon_a],
-        popup='起点A',
-        icon=folium.Icon(color='green')
+        location=[lat_a, lon_a],
+        popup=f'起点A<br>纬度: {lat_a:.6f}<br>经度: {lon_a:.6f}',
+        icon=folium.Icon(color='green', icon='play', prefix='fa')
     ).add_to(m)
     
     # 添加终点B
     folium.Marker(
-        [lat_b, lon_b],
-        popup='终点B',
-        icon=folium.Icon(color='red')
+        location=[lat_b, lon_b],
+        popup=f'终点B<br>纬度: {lat_b:.6f}<br>经度: {lon_b:.6f}',
+        icon=folium.Icon(color='red', icon='flag-checkered', prefix='fa')
     ).add_to(m)
     
     # 添加障碍物
@@ -123,35 +124,28 @@ def create_3d_map(lat_a, lon_a, lat_b, lon_b, obstacles, height):
         folium.Circle(
             radius=50,
             location=[obs["lat"], obs["lon"]],
-            popup=obs["name"],
+            popup=f'{obs["name"]}<br>高度: {obs["height"]}米',
             color='orange',
             fill=True,
-            fill_opacity=0.5
+            fill_color='orange',
+            fill_opacity=0.5,
+            tooltip=obs["name"]
         ).add_to(m)
-    
-    return m
         
         # 添加高度文字
-        folium.map.Marker(
-            [obs["lat"], obs["lon"]],
+        folium.Marker(
+            location=[obs["lat"], obs["lon"]],
             icon=folium.DivIcon(
                 html=f'<div style="font-size: 12px; font-weight: bold; color: orange;">{obs["height"]}m</div>'
             )
         ).add_to(m)
     
-    # 添加飞行高度指示（在中点添加高度标记）
-    folium.map.Marker(
-        [center_lat, center_lon],
+    # 添加飞行高度指示
+    folium.Marker(
+        location=[center_lat, center_lon],
         icon=folium.DivIcon(
             html=f'<div style="font-size: 14px; font-weight: bold; background: white; padding: 2px 5px; border-radius: 10px;">✈️ 飞行高度: {height}米</div>'
         )
-    ).add_to(m)
-    
-    # 添加比例尺
-    folium.plugins.MeasureControl(
-        position='topleft',
-        primary_length_unit='meters',
-        primary_area_unit='sqmeters'
     ).add_to(m)
     
     return m
@@ -173,11 +167,11 @@ if st.session_state.page == "航线规划":
         is_gcj02 = "GCJ-02" in coord_system
         
         st.divider()
-        st.header("📍 起点 A (南门附近)")
+        st.header("📍 起点 A")
         lat_a_input = st.number_input("纬度 A", value=st.session_state.coords_a["lat"], format="%.6f")
         lon_a_input = st.number_input("经度 A", value=st.session_state.coords_a["lon"], format="%.6f")
         
-        st.header("📍 终点 B (北门附近)")
+        st.header("📍 终点 B")
         lat_b_input = st.number_input("纬度 B", value=st.session_state.coords_b["lat"], format="%.6f")
         lon_b_input = st.number_input("经度 B", value=st.session_state.coords_b["lon"], format="%.6f")
         
@@ -195,7 +189,6 @@ if st.session_state.page == "航线规划":
             st.success("B点已设")
         st.caption(f"当前坐标系: {coord_system}")
         
-        # 显示障碍物列表
         with st.expander("🏢 障碍物列表"):
             for obs in OBSTACLES:
                 st.write(f"- {obs['name']}: {obs['height']}米")
@@ -208,32 +201,44 @@ if st.session_state.page == "航线规划":
         lon_a_display, lat_a_display = wgs84_to_gcj02(lon_a_input, lat_a_input)
         lon_b_display, lat_b_display = wgs84_to_gcj02(lon_b_input, lat_b_input)
     
-    # 保存到session_state
+    # 保存
     st.session_state.coords_a = {"lat": lat_a_display, "lon": lon_a_display}
     st.session_state.coords_b = {"lat": lat_b_display, "lon": lon_b_display}
     
-    # 创建并显示地图
+    # 显示地图
     st.subheader("🗺️ 校园卫星地图 - 航线与障碍物")
     
-    # 创建地图
-    m = create_3d_map(
-        lat_a_display, lon_a_display,
-        lat_b_display, lon_b_display,
-        OBSTACLES,
-        flight_height
-    )
+    try:
+        m = create_map(
+            lat_a_display, lon_a_display,
+            lat_b_display, lon_b_display,
+            OBSTACLES,
+            flight_height
+        )
+        folium_static(m, width=900, height=600)
+    except Exception as e:
+        st.error(f"地图加载失败: {e}")
+        st.info("尝试使用备用地图...")
+        
+        # 备用地图（OpenStreetMap）
+        center_lat = (lat_a_display + lat_b_display) / 2
+        center_lon = (lon_a_display + lon_b_display) / 2
+        m2 = folium.Map(location=[center_lat, center_lon], zoom_start=17)
+        folium.PolyLine([[lat_a_display, lon_a_display], [lat_b_display, lon_b_display]], color='red', weight=5).add_to(m2)
+        folium.Marker([lat_a_display, lon_a_display], popup='起点A', icon=folium.Icon(color='green')).add_to(m2)
+        folium.Marker([lat_b_display, lon_b_display], popup='终点B', icon=folium.Icon(color='red')).add_to(m2)
+        for obs in OBSTACLES:
+            folium.Circle([obs["lat"], obs["lon"]], radius=50, color='orange', fill=True, fill_opacity=0.5).add_to(m2)
+        folium_static(m2, width=900, height=600)
     
-    # 显示地图
-    folium_static(m, width=900, height=600)
-    
-    # 图例说明
+    # 图例
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.markdown("🟢 **绿色标记** = 起点A")
     with col2:
         st.markdown("🔴 **红色标记** = 终点B")
     with col3:
-        st.markdown("🟠 **橙色圆** = 障碍物建筑")
+        st.markdown("🟠 **橙色圆** = 障碍物")
     with col4:
         st.markdown("🔴 **红线** = 飞行航线")
     
@@ -241,21 +246,11 @@ if st.session_state.page == "航线规划":
     st.subheader("📐 坐标信息")
     col1, col2 = st.columns(2)
     with col1:
-        st.info(f"""
-        **起点A** (GCJ-02)
-        - 纬度: {lat_a_display:.6f}
-        - 经度: {lon_a_display:.6f}
-        - 位置: 南京科技职业学院南门附近
-        """)
+        st.info(f"**起点A** (GCJ-02)\n- 纬度: {lat_a_display:.6f}\n- 经度: {lon_a_display:.6f}")
     with col2:
-        st.info(f"""
-        **终点B** (GCJ-02)
-        - 纬度: {lat_b_display:.6f}
-        - 经度: {lon_b_display:.6f}
-        - 位置: 南京科技职业学院北门附近
-        """)
+        st.info(f"**终点B** (GCJ-02)\n- 纬度: {lat_b_display:.6f}\n- 经度: {lon_b_display:.6f}")
     
-    st.caption(f"飞行高度: {flight_height} 米 | 障碍物数量: {len(OBSTACLES)} 个 | 坐标系: {coord_system}")
+    st.caption(f"飞行高度: {flight_height} 米 | 障碍物数量: {len(OBSTACLES)} 个")
 
 # ==================== 飞行监控页面 ====================
 else:
@@ -351,3 +346,5 @@ else:
             st.dataframe(df.tail(10), use_container_width=True)
         else:
             st.info("暂无数据")
+    
+    st.caption("提示：每秒自动发送一次心跳包，超过3秒无响应触发掉线报警")
