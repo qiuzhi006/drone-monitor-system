@@ -82,20 +82,19 @@ OBSTACLES = [
     {"name": "宿舍楼", "lat": 32.2355, "lon": 118.7498, "height": 28},
 ]
 
-# ==================== 创建地图函数（使用 OpenStreetMap，稳定可靠） ====================
+# ==================== 创建地图函数（使用 CartoDB positron，国内稳定） ====================
 def create_map(lat_a, lon_a, lat_b, lon_b, obstacles, height):
-    """创建地图，底图使用 OpenStreetMap"""
+    """创建地图，底图使用 CartoDB positron（国内可访问）"""
     center_lat = (lat_a + lat_b) / 2
     center_lon = (lon_a + lon_b) / 2
     
-    # 使用 OpenStreetMap 标准地图（国内可访问，无需密钥）
     m = folium.Map(
         location=[center_lat, center_lon],
         zoom_start=17,
-        tiles='OpenStreetMap'
+        tiles='CartoDB positron'
     )
     
-    # 添加航线（红色线条）
+    # 航线
     folium.PolyLine(
         locations=[[lat_a, lon_a], [lat_b, lon_b]],
         color='red',
@@ -104,21 +103,21 @@ def create_map(lat_a, lon_a, lat_b, lon_b, obstacles, height):
         tooltip='飞行航线'
     ).add_to(m)
     
-    # 添加起点A（绿色标记）
+    # 起点A
     folium.Marker(
         location=[lat_a, lon_a],
         popup=f'起点A<br>纬度: {lat_a:.6f}<br>经度: {lon_a:.6f}',
         icon=folium.Icon(color='green', icon='play', prefix='fa')
     ).add_to(m)
     
-    # 添加终点B（红色标记）
+    # 终点B
     folium.Marker(
         location=[lat_b, lon_b],
         popup=f'终点B<br>纬度: {lat_b:.6f}<br>经度: {lon_b:.6f}',
         icon=folium.Icon(color='red', icon='flag-checkered', prefix='fa')
     ).add_to(m)
     
-    # 添加障碍物（橙色圆形区域 + 高度文字）
+    # 障碍物（圆形区域 + 高度标签）
     for obs in obstacles:
         folium.Circle(
             radius=50,
@@ -131,7 +130,6 @@ def create_map(lat_a, lon_a, lat_b, lon_b, obstacles, height):
             tooltip=obs["name"]
         ).add_to(m)
         
-        # 添加高度数字标签
         folium.Marker(
             location=[obs["lat"], obs["lon"]],
             icon=folium.DivIcon(
@@ -139,7 +137,7 @@ def create_map(lat_a, lon_a, lat_b, lon_b, obstacles, height):
             )
         ).add_to(m)
     
-    # 添加飞行高度指示（中心位置）
+    # 飞行高度指示
     folium.Marker(
         location=[center_lat, center_lon],
         icon=folium.DivIcon(
@@ -200,7 +198,6 @@ if st.session_state.page == "航线规划":
         lon_a_display, lat_a_display = wgs84_to_gcj02(lon_a_input, lat_a_input)
         lon_b_display, lat_b_display = wgs84_to_gcj02(lon_b_input, lat_b_input)
     
-    # 保存到 session_state
     st.session_state.coords_a = {"lat": lat_a_display, "lon": lon_a_display}
     st.session_state.coords_b = {"lat": lat_b_display, "lon": lon_b_display}
     
@@ -217,16 +214,16 @@ if st.session_state.page == "航线规划":
         folium_static(m, width=900, height=600)
     except Exception as e:
         st.error(f"地图加载失败: {e}")
-        st.info("请检查网络连接，或刷新页面重试。")
+        st.info("请刷新页面重试。")
     
-    # 图例说明
+    # 图例
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.markdown("🟢 **绿色标记** = 起点A")
     with col2:
         st.markdown("🔴 **红色标记** = 终点B")
     with col3:
-        st.markdown("🟠 **橙色圆** = 障碍物建筑")
+        st.markdown("🟠 **橙色圆** = 障碍物")
     with col4:
         st.markdown("🔴 **红线** = 飞行航线")
     
@@ -234,19 +231,9 @@ if st.session_state.page == "航线规划":
     st.subheader("📐 坐标信息")
     col1, col2 = st.columns(2)
     with col1:
-        st.info(f"""
-        **起点A** (GCJ-02)
-        - 纬度: {lat_a_display:.6f}
-        - 经度: {lon_a_display:.6f}
-        - 位置: 南京科技职业学院南门附近
-        """)
+        st.info(f"**起点A** (GCJ-02)\n- 纬度: {lat_a_display:.6f}\n- 经度: {lon_a_display:.6f}")
     with col2:
-        st.info(f"""
-        **终点B** (GCJ-02)
-        - 纬度: {lat_b_display:.6f}
-        - 经度: {lon_b_display:.6f}
-        - 位置: 南京科技职业学院北门附近
-        """)
+        st.info(f"**终点B** (GCJ-02)\n- 纬度: {lat_b_display:.6f}\n- 经度: {lon_b_display:.6f}")
     
     st.caption(f"飞行高度: {flight_height} 米 | 障碍物数量: {len(OBSTACLES)} 个")
 
@@ -278,7 +265,7 @@ else:
         st.caption(f"飞行高度: {st.session_state.flight_height} 米")
         st.caption(f"坐标系: {st.session_state.coord_system}")
     
-    # 心跳生成函数
+    # 心跳生成
     def generate_heartbeat():
         seq = len(st.session_state.heartbeats) + 1
         now = datetime.now()
@@ -289,14 +276,13 @@ else:
         })
         st.session_state.last_time = time.time()
     
-    # 自动心跳
     if st.session_state.running:
         current_time = time.time()
         if current_time - st.session_state.last_time >= 1:
             generate_heartbeat()
             st.rerun()
     
-    # 实时状态卡片
+    # 实时状态
     st.subheader("📊 实时状态")
     col1, col2, col3, col4 = st.columns(4)
     
@@ -329,7 +315,7 @@ else:
     
     st.divider()
     
-    # 心跳可视化
+    # 可视化
     col1, col2 = st.columns([2, 1])
     with col1:
         st.subheader("📈 心跳序号变化趋势")
