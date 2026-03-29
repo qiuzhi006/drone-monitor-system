@@ -85,58 +85,51 @@ OBSTACLES = [
 
 # ==================== 创建地图函数 ====================
 def create_3d_map(lat_a, lon_a, lat_b, lon_b, obstacles, height):
-    """创建带障碍物的3D地图（使用Folium）"""
+    """创建带障碍物的地图"""
     
-    # 计算中心点
     center_lat = (lat_a + lat_b) / 2
     center_lon = (lon_a + lon_b) / 2
     
-    # 创建地图（使用高德卫星图）
+    # 先用 OpenStreetMap 测试
     m = folium.Map(
         location=[center_lat, center_lon],
-        zoom_start=17,
-        tiles='https://webst01.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}',
-        attr='高德地图'
+        zoom_start=17
     )
     
-    # 添加航线（折线）
+    # 添加航线
     folium.PolyLine(
         locations=[[lat_a, lon_a], [lat_b, lon_b]],
         color='red',
         weight=5,
-        opacity=0.8,
         tooltip='飞行航线'
     ).add_to(m)
     
-    # 添加起点A标记
+    # 添加起点A
     folium.Marker(
-        location=[lat_a, lon_a],
-        popup=f'起点A<br>纬度: {lat_a:.6f}<br>经度: {lon_a:.6f}',
-        icon=folium.Icon(color='green', icon='play', prefix='fa'),
-        tooltip='起点A'
+        [lat_a, lon_a],
+        popup='起点A',
+        icon=folium.Icon(color='green')
     ).add_to(m)
     
-    # 添加终点B标记
+    # 添加终点B
     folium.Marker(
-        location=[lat_b, lon_b],
-        popup=f'终点B<br>纬度: {lat_b:.6f}<br>经度: {lon_b:.6f}',
-        icon=folium.Icon(color='red', icon='flag-checkered', prefix='fa'),
-        tooltip='终点B'
+        [lat_b, lon_b],
+        popup='终点B',
+        icon=folium.Icon(color='red')
     ).add_to(m)
     
-    # 添加障碍物（用圆形标记 + 高度文字）
+    # 添加障碍物
     for obs in obstacles:
-        # 圆形区域表示障碍物
         folium.Circle(
-            radius=50,  # 50米半径
+            radius=50,
             location=[obs["lat"], obs["lon"]],
-            popup=f'{obs["name"]}<br>高度: {obs["height"]}米',
-            color=obs["color"],
+            popup=obs["name"],
+            color='orange',
             fill=True,
-            fill_color=obs["color"],
-            fill_opacity=0.5,
-            tooltip=obs["name"]
+            fill_opacity=0.5
         ).add_to(m)
+    
+    return m
         
         # 添加高度文字
         folium.map.Marker(
