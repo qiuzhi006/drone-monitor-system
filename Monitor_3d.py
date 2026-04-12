@@ -2,8 +2,10 @@ import streamlit as st
 import pandas as pd
 import time
 import folium
-from streamlit_folium import folium_static
+from streamlit_folium import st_folium, folium_static
 import math
+import json
+import os
 from datetime import datetime
 
 st.set_page_config(layout="wide", page_title="无人机监测系统")
@@ -51,7 +53,20 @@ def wgs84_to_gcj02(lng, lat):
     dlng = (dlng * 180.0) / (a / sqrtmagic * math.cos(radlat) * pi)
     return lng + dlng, lat + dlat
 
-# ==================== 初始化数据 ====================
+def gcj02_to_wgs84(lng, lat):
+    if out_of_china(lng, lat):
+        return lng, lat
+    dlat = _transform_lat(lng - 105.0, lat - 35.0)
+    dlng = _transform_lng(lng - 105.0, lat - 35.0)
+    radlat = lat / 180.0 * pi
+    magic = math.sin(radlat)
+    magic = 1 - ee * magic * magic
+    sqrtmagic = math.sqrt(magic)
+    dlat = (dlat * 180.0) / ((a * (1 - ee)) / (magic * sqrtmagic) * pi)
+    dlng = (dlng * 180.0) / (a / sqrtmagic * math.cos(radlat) * pi)
+    return lng - dlng, lat - dlat
+
+# ==================== 初始化 Session State ====================
 if "heartbeats" not in st.session_state:
     st.session_state.heartbeats = []
     st.session_state.last_time = time.time()
@@ -66,6 +81,56 @@ if "coord_system" not in st.session_state:
     st.session_state.coord_system = "GCJ-02 (高德/腾讯)"
 if "page" not in st.session_state:
     st.session_state.page = "飞行监控"
+if "obstacles" not in st.session_state:
+    # 预定义障碍物（多边形列表，每个多边形是 [[lng,lat], ...]）
+    st.session_state.obstacles = [
+        {
+            "name": "教学楼1",
+            "coords": [[118.7488, 32.2320], [118.7492, 32.2320], [118.7492, 32.2324], [118.7488, 32.2324]],
+            "height": 30
+        },
+        {
+            "name": "教学楼2",
+            "coords": [[118.7490, 32.2332], [118.7494, 32.2332], [118.7494, 32.2336], [118.7490, 32.2336]],
+            "height": 35
+        },
+        {
+            "name": "图书馆",
+            "coords": [[118.7492, 32.2340], [118.7496, 32.2340], [118.7496, 32.2344], [118.7492, 32.2344]],
+            "height": 25
+        },
+        {
+            "name": "食堂",
+            "coords": [[118.7495, 32.2348], [118.7499, 32.2348], [118.7499, 32.2352], [118.7495, 32.2352]],
+            "height": 20
+        },
+        {
+            "name": "宿舍楼",
+            "coords": [[118.7498, 32.2355], [118.7502, 32.2355], [118.7502, 32.2359], [118.7498, 32.2359]],
+            "height": 28
+        }
+    ]
+
+# 持久化文件路径
+CONFIG_FILE = "obstacle_config.json"
+
+def load_obstacles():
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                if "obstacles" in data:
+                    st.session_state.obstacles = data["obstacles"]
+        except Exception as e:
+            st.error(f"加载配置文件失败: {e}")
+
+def save_obstacles():
+    try:
+        with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+            json.dump({"obstacles": st.session_state.obstacles}, f, ensure_ascii=False, indent=2)
+        st.success("障碍物配置已保存到文件")
+    except Exception as e:
+        st.error(f"保存失败: {e}")
 
 # ==================== 侧边栏导航 ====================
 with st.sidebar:
@@ -73,25 +138,18 @@ with st.sidebar:
     page = st.radio("功能页面", ["飞行监控", "航线规划"])
     st.session_state.page = page
 
-# ==================== 障碍物数据（南京科技职业学院） ====================
-OBSTACLES = [
-    {"name": "教学楼1", "lat": 32.2320, "lon": 118.7488, "height": 30},
-    {"name": "教学楼2", "lat": 32.2332, "lon": 118.7490, "height": 35},
-    {"name": "图书馆", "lat": 32.2340, "lon": 118.7492, "height": 25},
-    {"name": "食堂", "lat": 32.2348, "lon": 118.7495, "height": 20},
-    {"name": "宿舍楼", "lat": 32.2355, "lon": 118.7498, "height": 28},
-]
-
-# ==================== 创建地图函数（使用 CartoDB positron，国内稳定） ====================
+# ==================== 创建地图函数（高德卫星图，GCJ-02坐标系） ====================
 def create_map(lat_a, lon_a, lat_b, lon_b, obstacles, height):
-    """创建地图，底图使用 CartoDB positron（国内可访问）"""
+    """创建卫星地图，显示航线、起终点、障碍物多边形"""
     center_lat = (lat_a + lat_b) / 2
     center_lon = (lon_a + lon_b) / 2
     
+    # 高德卫星图瓦片（style=6 卫星图，支持GCJ-02）
     m = folium.Map(
         location=[center_lat, center_lon],
         zoom_start=17,
-        tiles='CartoDB positron'
+        tiles='https://webst01.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}',
+        attr='高德卫星地图'
     )
     
     # 航线
@@ -103,35 +161,38 @@ def create_map(lat_a, lon_a, lat_b, lon_b, obstacles, height):
         tooltip='飞行航线'
     ).add_to(m)
     
-    # 起点A
+    # 起点
     folium.Marker(
         location=[lat_a, lon_a],
         popup=f'起点A<br>纬度: {lat_a:.6f}<br>经度: {lon_a:.6f}',
         icon=folium.Icon(color='green', icon='play', prefix='fa')
     ).add_to(m)
     
-    # 终点B
+    # 终点
     folium.Marker(
         location=[lat_b, lon_b],
         popup=f'终点B<br>纬度: {lat_b:.6f}<br>经度: {lon_b:.6f}',
         icon=folium.Icon(color='red', icon='flag-checkered', prefix='fa')
     ).add_to(m)
     
-    # 障碍物（圆形区域 + 高度标签）
+    # 障碍物多边形
     for obs in obstacles:
-        folium.Circle(
-            radius=50,
-            location=[obs["lat"], obs["lon"]],
-            popup=f'{obs["name"]}<br>高度: {obs["height"]}米',
+        # 多边形坐标格式 [[lng,lat], ...] -> folium 需要 [lat,lng]
+        polygon_coords = [[coord[1], coord[0]] for coord in obs["coords"]]
+        folium.Polygon(
+            locations=polygon_coords,
             color='orange',
             fill=True,
             fill_color='orange',
-            fill_opacity=0.5,
-            tooltip=obs["name"]
+            fill_opacity=0.4,
+            weight=2,
+            tooltip=f"{obs['name']} (高{obs['height']}m)"
         ).add_to(m)
-        
+        # 添加高度标签（中心点近似）
+        center = [sum(c[1] for c in obs["coords"])/len(obs["coords"]),
+                  sum(c[0] for c in obs["coords"])/len(obs["coords"])]
         folium.Marker(
-            location=[obs["lat"], obs["lon"]],
+            location=[center[0], center[1]],
             icon=folium.DivIcon(
                 html=f'<div style="font-size: 12px; font-weight: bold; color: #ff6600;">{obs["height"]}m</div>'
             )
@@ -149,12 +210,11 @@ def create_map(lat_a, lon_a, lat_b, lon_b, obstacles, height):
 
 # ==================== 航线规划页面 ====================
 if st.session_state.page == "航线规划":
-    st.title("🗺️ 航线规划 - 校园3D地图")
+    st.title("🗺️ 航线规划 + 障碍物圈选")
     
     with st.sidebar:
         st.divider()
         st.header("🎮 坐标系设置")
-        
         coord_system = st.selectbox(
             "输入坐标系",
             ["GCJ-02 (高德/腾讯)", "WGS-84 (GPS)"],
@@ -172,49 +232,102 @@ if st.session_state.page == "航线规划":
         lat_b_input = st.number_input("纬度 B", value=st.session_state.coords_b["lat"], format="%.6f")
         lon_b_input = st.number_input("经度 B", value=st.session_state.coords_b["lon"], format="%.6f")
         
-        st.divider()
         st.header("✈️ 飞行参数")
         flight_height = st.slider("飞行高度 (m)", 20, 100, st.session_state.flight_height)
         st.session_state.flight_height = flight_height
         
         st.divider()
-        st.subheader("📌 系统状态")
+        st.subheader("🗂️ 障碍物持久化")
         col1, col2 = st.columns(2)
         with col1:
-            st.success("A点已设")
+            if st.button("💾 保存障碍物", use_container_width=True):
+                save_obstacles()
         with col2:
-            st.success("B点已设")
-        st.caption(f"当前坐标系: {coord_system}")
+            if st.button("📂 加载障碍物", use_container_width=True):
+                load_obstacles()
+        if st.button("🗑️ 清除全部障碍物", use_container_width=True):
+            st.session_state.obstacles = []
+            st.success("已清除所有障碍物")
         
-        with st.expander("🏢 障碍物列表"):
-            for obs in OBSTACLES:
-                st.write(f"- {obs['name']}: {obs['height']}米")
+        st.divider()
+        st.subheader("➕ 添加障碍物（多边形圈选）")
+        st.markdown("在地图上使用 **多边形绘制工具** 圈选区域，然后命名并添加。")
+        new_obs_name = st.text_input("障碍物名称", placeholder="例如：新建筑")
+        new_obs_height = st.number_input("高度 (米)", min_value=0, max_value=200, value=30)
+        if st.button("✅ 添加已圈选的多边形"):
+            if "drawn_polygon" in st.session_state and st.session_state.drawn_polygon:
+                coords = st.session_state.drawn_polygon
+                if new_obs_name:
+                    st.session_state.obstacles.append({
+                        "name": new_obs_name,
+                        "coords": coords,
+                        "height": new_obs_height
+                    })
+                    st.success(f"已添加障碍物: {new_obs_name}")
+                    st.session_state.drawn_polygon = None  # 清除缓存
+                else:
+                    st.error("请输入障碍物名称")
+            else:
+                st.error("请先在地图上绘制一个多边形")
+        
+        with st.expander("📋 当前障碍物列表"):
+            for i, obs in enumerate(st.session_state.obstacles):
+                st.write(f"{i+1}. {obs['name']} (高{obs['height']}m) - 顶点数: {len(obs['coords'])}")
+                if st.button(f"❌ 删除 {obs['name']}", key=f"del_{i}"):
+                    st.session_state.obstacles.pop(i)
+                    st.rerun()
     
-    # 坐标转换
+    # 坐标转换（显示用的坐标统一为 GCJ-02，因为地图是高德卫星图）
     if is_gcj02:
         lat_a_display, lon_a_display = lat_a_input, lon_a_input
         lat_b_display, lon_b_display = lat_b_input, lon_b_input
     else:
+        # WGS-84 转 GCJ-02
         lon_a_display, lat_a_display = wgs84_to_gcj02(lon_a_input, lat_a_input)
         lon_b_display, lat_b_display = wgs84_to_gcj02(lon_b_input, lat_b_input)
     
     st.session_state.coords_a = {"lat": lat_a_display, "lon": lon_a_display}
     st.session_state.coords_b = {"lat": lat_b_display, "lon": lon_b_display}
     
-    # 显示地图
-    st.subheader("🗺️ 校园地图 - 航线与障碍物")
+    st.subheader("🗺️ 高德卫星地图 - 可绘制多边形圈选障碍物")
     
-    try:
-        m = create_map(
-            lat_a_display, lon_a_display,
-            lat_b_display, lon_b_display,
-            OBSTACLES,
-            flight_height
-        )
-        folium_static(m, width=900, height=600)
-    except Exception as e:
-        st.error(f"地图加载失败: {e}")
-        st.info("请刷新页面重试。")
+    # 创建基础地图
+    m = create_map(
+        lat_a_display, lon_a_display,
+        lat_b_display, lon_b_display,
+        st.session_state.obstacles,
+        flight_height
+    )
+    
+    # 添加绘图控件（允许用户绘制多边形）
+    draw = folium.plugins.Draw(
+        draw_options={
+            'polyline': False,
+            'rectangle': False,
+            'circle': False,
+            'marker': False,
+            'circlemarker': False,
+            'polygon': True
+        },
+        edit_options={'edit': True}
+    )
+    draw.add_to(m)
+    
+    # 使用 st_folium 获取绘图数据
+    output = st_folium(m, width=900, height=600, key="map_draw")
+    
+    # 解析用户绘制的多边形
+    if output and "last_active_draw" in output and output["last_active_draw"]:
+        draw_data = output["last_active_draw"]
+        if draw_data and "geometry" in draw_data:
+            geom = draw_data["geometry"]
+            if geom["type"] == "Polygon":
+                # 提取坐标，格式 [[lng, lat], ...]
+                coords = geom["coordinates"][0]
+                # 转换为 [[lng, lat], ...]
+                polygon_coords = [[c[0], c[1]] for c in coords]
+                st.session_state.drawn_polygon = polygon_coords
+                st.success("已捕获多边形，请填写名称和高度后点击「添加已圈选的多边形」")
     
     # 图例
     col1, col2, col3, col4 = st.columns(4)
@@ -223,7 +336,7 @@ if st.session_state.page == "航线规划":
     with col2:
         st.markdown("🔴 **红色标记** = 终点B")
     with col3:
-        st.markdown("🟠 **橙色圆** = 障碍物")
+        st.markdown("🟠 **橙色多边形** = 障碍物")
     with col4:
         st.markdown("🔴 **红线** = 飞行航线")
     
@@ -235,7 +348,7 @@ if st.session_state.page == "航线规划":
     with col2:
         st.info(f"**终点B** (GCJ-02)\n- 纬度: {lat_b_display:.6f}\n- 经度: {lon_b_display:.6f}")
     
-    st.caption(f"飞行高度: {flight_height} 米 | 障碍物数量: {len(OBSTACLES)} 个")
+    st.caption(f"飞行高度: {flight_height} 米 | 障碍物数量: {len(st.session_state.obstacles)} 个 | 坐标系: {coord_system}")
 
 # ==================== 飞行监控页面 ====================
 else:
@@ -244,7 +357,6 @@ else:
     with st.sidebar:
         st.divider()
         st.header("🎮 心跳控制")
-        
         col1, col2 = st.columns(2)
         with col1:
             if st.button("▶️ 开始模拟", use_container_width=True):
@@ -252,12 +364,10 @@ else:
         with col2:
             if st.button("⏹️ 停止模拟", use_container_width=True):
                 st.session_state.running = False
-        
         if st.button("🗑️ 清空数据", use_container_width=True):
             st.session_state.heartbeats = []
             st.session_state.last_time = time.time()
             st.session_state.running = False
-        
         st.divider()
         st.subheader("✈️ 当前航线")
         st.caption(f"起点A: {st.session_state.coords_a['lat']:.6f}, {st.session_state.coords_a['lon']:.6f}")
@@ -282,10 +392,9 @@ else:
             generate_heartbeat()
             st.rerun()
     
-    # 实时状态
+    # 状态卡片
     st.subheader("📊 实时状态")
     col1, col2, col3, col4 = st.columns(4)
-    
     if len(st.session_state.heartbeats) > 0:
         latest = st.session_state.heartbeats[-1]
         last_beat_time = latest["时间"].timestamp()
@@ -324,12 +433,10 @@ else:
             st.line_chart(df.set_index("时间")["序号"], use_container_width=True)
         else:
             st.info("暂无心跳数据")
-    
     with col2:
         st.subheader("📋 最近心跳记录")
         if not df.empty:
             st.dataframe(df.tail(10), use_container_width=True)
         else:
             st.info("暂无数据")
-    
     st.caption("提示：每秒自动发送一次心跳包，超过3秒无响应触发掉线报警")
