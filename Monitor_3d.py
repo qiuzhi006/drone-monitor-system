@@ -82,7 +82,33 @@ if "coord_system" not in st.session_state:
 if "page" not in st.session_state:
     st.session_state.page = "飞行监控"
 if "obstacles" not in st.session_state:
-    st.session_state.obstacles = []   # 改为空列表，让用户自己添加
+  st.session_state.obstacles = [
+    {
+        "name": "教学楼1",
+        "coords": [[118.7488, 32.2320], [118.7492, 32.2320], [118.7492, 32.2324], [118.7488, 32.2324]],
+        "height": 30
+    },
+    {
+        "name": "教学楼2",
+        "coords": [[118.7490, 32.2332], [118.7494, 32.2332], [118.7494, 32.2336], [118.7490, 32.2336]],
+        "height": 35
+    },
+    {
+        "name": "图书馆",
+        "coords": [[118.7492, 32.2340], [118.7496, 32.2340], [118.7496, 32.2344], [118.7492, 32.2344]],
+        "height": 25
+    },
+    {
+        "name": "食堂",
+        "coords": [[118.7495, 32.2348], [118.7499, 32.2348], [118.7499, 32.2352], [118.7495, 32.2352]],
+        "height": 20
+    },
+    {
+        "name": "宿舍楼",
+        "coords": [[118.7498, 32.2355], [118.7502, 32.2355], [118.7502, 32.2359], [118.7498, 32.2359]],
+        "height": 28
+    }
+]
 if "drawn_polygon" not in st.session_state:
     st.session_state.drawn_polygon = None
 
