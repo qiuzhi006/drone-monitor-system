@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import time
 import folium
-from streamlit_folium import st_folium, folium_static
+from streamlit_folium import st_folium
 import math
 import json
 import os
@@ -82,34 +82,9 @@ if "coord_system" not in st.session_state:
 if "page" not in st.session_state:
     st.session_state.page = "飞行监控"
 if "obstacles" not in st.session_state:
-    # 预定义障碍物（多边形列表，每个多边形是 [[lng,lat], ...]）
-    st.session_state.obstacles = [
-        {
-            "name": "教学楼1",
-            "coords": [[118.7488, 32.2320], [118.7492, 32.2320], [118.7492, 32.2324], [118.7488, 32.2324]],
-            "height": 30
-        },
-        {
-            "name": "教学楼2",
-            "coords": [[118.7490, 32.2332], [118.7494, 32.2332], [118.7494, 32.2336], [118.7490, 32.2336]],
-            "height": 35
-        },
-        {
-            "name": "图书馆",
-            "coords": [[118.7492, 32.2340], [118.7496, 32.2340], [118.7496, 32.2344], [118.7492, 32.2344]],
-            "height": 25
-        },
-        {
-            "name": "食堂",
-            "coords": [[118.7495, 32.2348], [118.7499, 32.2348], [118.7499, 32.2352], [118.7495, 32.2352]],
-            "height": 20
-        },
-        {
-            "name": "宿舍楼",
-            "coords": [[118.7498, 32.2355], [118.7502, 32.2355], [118.7502, 32.2359], [118.7498, 32.2359]],
-            "height": 28
-        }
-    ]
+    st.session_state.obstacles = []   # 改为空列表，让用户自己添加
+if "drawn_polygon" not in st.session_state:
+    st.session_state.drawn_polygon = None
 
 # 持久化文件路径
 CONFIG_FILE = "obstacle_config.json"
@@ -121,6 +96,7 @@ def load_obstacles():
                 data = json.load(f)
                 if "obstacles" in data:
                     st.session_state.obstacles = data["obstacles"]
+                    st.success(f"已加载 {len(data['obstacles'])} 个障碍物")
         except Exception as e:
             st.error(f"加载配置文件失败: {e}")
 
@@ -138,13 +114,12 @@ with st.sidebar:
     page = st.radio("功能页面", ["飞行监控", "航线规划"])
     st.session_state.page = page
 
-# ==================== 创建地图函数（高德卫星图，GCJ-02坐标系） ====================
+# ==================== 创建地图函数 ====================
 def create_map(lat_a, lon_a, lat_b, lon_b, obstacles, height):
-    """创建卫星地图，显示航线、起终点、障碍物多边形"""
     center_lat = (lat_a + lat_b) / 2
     center_lon = (lon_a + lon_b) / 2
     
-    # 高德卫星图瓦片（style=6 卫星图，支持GCJ-02）
+    # 高德卫星图（style=6 卫星图，支持GCJ-02）
     m = folium.Map(
         location=[center_lat, center_lon],
         zoom_start=17,
@@ -177,8 +152,7 @@ def create_map(lat_a, lon_a, lat_b, lon_b, obstacles, height):
     
     # 障碍物多边形
     for obs in obstacles:
-        # 多边形坐标格式 [[lng,lat], ...] -> folium 需要 [lat,lng]
-        polygon_coords = [[coord[1], coord[0]] for coord in obs["coords"]]
+        polygon_coords = [[coord[1], coord[0]] for coord in obs["coords"]]  # [lat, lng]
         folium.Polygon(
             locations=polygon_coords,
             color='orange',
@@ -188,7 +162,7 @@ def create_map(lat_a, lon_a, lat_b, lon_b, obstacles, height):
             weight=2,
             tooltip=f"{obs['name']} (高{obs['height']}m)"
         ).add_to(m)
-        # 添加高度标签（中心点近似）
+        # 高度标签
         center = [sum(c[1] for c in obs["coords"])/len(obs["coords"]),
                   sum(c[0] for c in obs["coords"])/len(obs["coords"])]
         folium.Marker(
@@ -205,6 +179,20 @@ def create_map(lat_a, lon_a, lat_b, lon_b, obstacles, height):
             html=f'<div style="font-size: 14px; font-weight: bold; background: white; padding: 2px 6px; border-radius: 15px; border: 1px solid red;">✈️ 飞行高度: {height}米</div>'
         )
     ).add_to(m)
+    
+    # 添加绘图控件（只允许绘制多边形）
+    draw = folium.plugins.Draw(
+        draw_options={
+            'polyline': False,
+            'rectangle': False,
+            'circle': False,
+            'marker': False,
+            'circlemarker': False,
+            'polygon': True
+        },
+        edit_options={'edit': True}
+    )
+    draw.add_to(m)
     
     return m
 
@@ -247,51 +235,90 @@ if st.session_state.page == "航线规划":
                 load_obstacles()
         if st.button("🗑️ 清除全部障碍物", use_container_width=True):
             st.session_state.obstacles = []
+            st.session_state.drawn_polygon = None
             st.success("已清除所有障碍物")
         
         st.divider()
         st.subheader("➕ 添加障碍物（多边形圈选）")
-        st.markdown("在地图上使用 **多边形绘制工具** 圈选区域，然后命名并添加。")
+        st.markdown("1️⃣ 在地图上绘制多边形（工具栏⏢，最后**双击**结束）\n2️⃣ 捕获成功后下方会显示顶点数\n3️⃣ 填写名称和高度，点击添加")
+        
+        # 显示当前捕获的多边形状态
+        if st.session_state.drawn_polygon:
+            st.success(f"✅ 已捕获多边形，顶点数: {len(st.session_state.drawn_polygon)}")
+        else:
+            st.info("⏳ 尚未捕获多边形，请先绘制")
+        
         new_obs_name = st.text_input("障碍物名称", placeholder="例如：新建筑")
         new_obs_height = st.number_input("高度 (米)", min_value=0, max_value=200, value=30)
         if st.button("✅ 添加已圈选的多边形"):
-            if "drawn_polygon" in st.session_state and st.session_state.drawn_polygon:
-                coords = st.session_state.drawn_polygon
+            if st.session_state.drawn_polygon and len(st.session_state.drawn_polygon) >= 3:
                 if new_obs_name:
                     st.session_state.obstacles.append({
                         "name": new_obs_name,
-                        "coords": coords,
+                        "coords": st.session_state.drawn_polygon,
                         "height": new_obs_height
                     })
                     st.success(f"已添加障碍物: {new_obs_name}")
-                    st.session_state.drawn_polygon = None  # 清除缓存
+                    st.session_state.drawn_polygon = None
+                    st.rerun()
                 else:
                     st.error("请输入障碍物名称")
             else:
-                st.error("请先在地图上绘制一个多边形")
+                st.error("请先在地图上绘制一个多边形（至少3个顶点）")
+        
+        # 备用方案：手动输入多边形
+        st.divider()
+        with st.expander("✏️ 手动输入多边形（备用）"):
+            st.markdown("如果绘制工具无法捕获，可手动输入顶点坐标（经度,纬度），每行一个点。")
+            st.code("示例：\n118.7488,32.2320\n118.7492,32.2320\n118.7492,32.2324\n118.7488,32.2324")
+            manual_coords = st.text_area("多边形顶点（每行一对经纬度）", height=150)
+            manual_name = st.text_input("障碍物名称（手动）", key="manual_name")
+            manual_height = st.number_input("高度 (米)", 0, 200, 30, key="manual_height")
+            if st.button("➕ 手动添加障碍物"):
+                if manual_name and manual_coords.strip():
+                    try:
+                        coords = []
+                        for line in manual_coords.strip().split('\n'):
+                            lng, lat = map(float, line.strip().split(','))
+                            coords.append([lng, lat])
+                        if len(coords) >= 3:
+                            st.session_state.obstacles.append({
+                                "name": manual_name,
+                                "coords": coords,
+                                "height": manual_height
+                            })
+                            st.success(f"已添加障碍物: {manual_name}")
+                            st.rerun()
+                        else:
+                            st.error("至少需要3个顶点")
+                    except Exception as e:
+                        st.error(f"坐标格式错误: {e}")
+                else:
+                    st.error("请输入名称和顶点坐标")
         
         with st.expander("📋 当前障碍物列表"):
+            if not st.session_state.obstacles:
+                st.write("暂无障碍物")
             for i, obs in enumerate(st.session_state.obstacles):
-                st.write(f"{i+1}. {obs['name']} (高{obs['height']}m) - 顶点数: {len(obs['coords'])}")
+                st.write(f"{i+1}. {obs['name']} (高{obs['height']}m) - {len(obs['coords'])}个顶点")
                 if st.button(f"❌ 删除 {obs['name']}", key=f"del_{i}"):
                     st.session_state.obstacles.pop(i)
                     st.rerun()
     
-    # 坐标转换（显示用的坐标统一为 GCJ-02，因为地图是高德卫星图）
+    # 坐标转换
     if is_gcj02:
         lat_a_display, lon_a_display = lat_a_input, lon_a_input
         lat_b_display, lon_b_display = lat_b_input, lon_b_input
     else:
-        # WGS-84 转 GCJ-02
         lon_a_display, lat_a_display = wgs84_to_gcj02(lon_a_input, lat_a_input)
         lon_b_display, lat_b_display = wgs84_to_gcj02(lon_b_input, lat_b_input)
     
     st.session_state.coords_a = {"lat": lat_a_display, "lon": lon_a_display}
     st.session_state.coords_b = {"lat": lat_b_display, "lon": lon_b_display}
     
-    st.subheader("🗺️ 高德卫星地图 - 可绘制多边形圈选障碍物")
+    st.subheader("🗺️ 高德卫星地图 - 绘制多边形圈选障碍物")
     
-    # 创建基础地图
+    # 创建地图
     m = create_map(
         lat_a_display, lon_a_display,
         lat_b_display, lon_b_display,
@@ -299,35 +326,25 @@ if st.session_state.page == "航线规划":
         flight_height
     )
     
-    # 添加绘图控件（允许用户绘制多边形）
-    draw = folium.plugins.Draw(
-        draw_options={
-            'polyline': False,
-            'rectangle': False,
-            'circle': False,
-            'marker': False,
-            'circlemarker': False,
-            'polygon': True
-        },
-        edit_options={'edit': True}
-    )
-    draw.add_to(m)
-    
-    # 使用 st_folium 获取绘图数据
+    # 使用 st_folium 并捕获绘图数据
     output = st_folium(m, width=900, height=600, key="map_draw")
     
-    # 解析用户绘制的多边形
+    # 解析用户绘制的多边形（兼容不同版本的输出格式）
     if output and "last_active_draw" in output and output["last_active_draw"]:
         draw_data = output["last_active_draw"]
-        if draw_data and "geometry" in draw_data:
-            geom = draw_data["geometry"]
-            if geom["type"] == "Polygon":
-                # 提取坐标，格式 [[lng, lat], ...]
-                coords = geom["coordinates"][0]
-                # 转换为 [[lng, lat], ...]
-                polygon_coords = [[c[0], c[1]] for c in coords]
-                st.session_state.drawn_polygon = polygon_coords
-                st.success("已捕获多边形，请填写名称和高度后点击「添加已圈选的多边形」")
+        # 尝试提取多边形坐标
+        if "geometry" in draw_data and draw_data["geometry"]["type"] == "Polygon":
+            coords_original = draw_data["geometry"]["coordinates"][0]
+            # 转换为 [[lng, lat], ...]
+            polygon_coords = [[c[0], c[1]] for c in coords_original]
+            st.session_state.drawn_polygon = polygon_coords
+            st.success(f"✅ 已捕获多边形（{len(polygon_coords)}个顶点），请填写名称和高度后点击添加")
+        elif "geometry" in draw_data and draw_data["geometry"]["type"] == "MultiPolygon":
+            # 取第一个多边形
+            coords_original = draw_data["geometry"]["coordinates"][0][0]
+            polygon_coords = [[c[0], c[1]] for c in coords_original]
+            st.session_state.drawn_polygon = polygon_coords
+            st.success(f"✅ 已捕获多边形（{len(polygon_coords)}个顶点），请填写名称和高度后点击添加")
     
     # 图例
     col1, col2, col3, col4 = st.columns(4)
