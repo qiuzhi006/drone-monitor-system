@@ -71,13 +71,10 @@ if "heartbeats" not in st.session_state:
     st.session_state.heartbeats = []
     st.session_state.last_time = time.time()
     st.session_state.running = False
-
-# 默认坐标（南京某地）
 if "coords_a" not in st.session_state:
-    st.session_state.coords_a = {"lat": 32.230500, "lon": 118.748500}
+    st.session_state.coords_a = {"lat": 32.2305, "lon": 118.7485}
 if "coords_b" not in st.session_state:
-    st.session_state.coords_b = {"lat": 32.23800, "lon": 118.754000}
-
+    st.session_state.coords_b = {"lat": 32.2365, "lon": 118.7500}
 if "flight_height" not in st.session_state:
     st.session_state.flight_height = 50
 if "coord_system" not in st.session_state:
@@ -128,8 +125,12 @@ def create_map(lat_a, lon_a, lat_b, lon_b, obstacles, height):
         zoom_start=17,
         tiles='https://webst01.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}',
         attr='高德卫星地图',
-        zoom_control=True
+        zoom_control=False # 防止控件冲突，后面单独加
     )
+    
+    # 添加缩放控件
+    folium.plugins.ScrollZoomToggler().add_to(m)
+    folium.ControlZoom(position='topleft').add_to(m)
     
     # 航线
     folium.PolyLine(
@@ -156,8 +157,7 @@ def create_map(lat_a, lon_a, lat_b, lon_b, obstacles, height):
     
     # 障碍物多边形
     for obs in obstacles:
-        # 确保坐标格式为 [[lat, lon], ...]
-        polygon_coords = [[coord[1], coord[0]] for coord in obs["coords"]]
+        polygon_coords = [[coord[1], coord[0]] for coord in obs["coords"]]  # [lat, lng]
         folium.Polygon(
             locations=polygon_coords,
             color='orange',
@@ -167,23 +167,21 @@ def create_map(lat_a, lon_a, lat_b, lon_b, obstacles, height):
             weight=2,
             tooltip=f"{obs['name']} (高{obs['height']}m)"
         ).add_to(m)
-        
-        # 高度标签（放在中心）
-        if len(obs["coords"]) > 0:
-            center_lng = sum(c[0] for c in obs["coords"]) / len(obs["coords"])
-            center_lat = sum(c[1] for c in obs["coords"]) / len(obs["coords"])
-            folium.Marker(
-                location=[center_lat, center_lng],
-                icon=folium.DivIcon(
-                    html=f'<div style="font-size: 12px; font-weight: bold; color: #ff6600; background: rgba(255,255,255,0.8); padding: 2px 5px; border-radius: 4px;">{obs["height"]}m</div>'
-                )
-            ).add_to(m)
+        # 高度标签
+        center = [sum(c[1] for c in obs["coords"])/len(obs["coords"]),
+                  sum(c[0] for c in obs["coords"])/len(obs["coords"])]
+        folium.Marker(
+            location=[center[0], center[1]],
+            icon=folium.DivIcon(
+                html=f'<div style="font-size: 12px; font-weight: bold; color: #ff6600;">{obs["height"]}m</div>'
+            )
+        ).add_to(m)
     
     # 飞行高度指示
     folium.Marker(
         location=[center_lat, center_lon],
         icon=folium.DivIcon(
-            html=f'<div style="font-size: 14px; font-weight: bold; background: white; padding: 2px 6px; border-radius: 15px; border: 1px solid red;">✈️ {height}m</div>'
+            html=f'<div style="font-size: 14px; font-weight: bold; background: white; padding: 2px 6px; border-radius: 15px; border: 1px solid red;">✈️ 飞行高度: {height}米</div>'
         )
     ).add_to(m)
     
@@ -213,194 +211,270 @@ if st.session_state.page == "航线规划":
         coord_system = st.selectbox(
             "输入坐标系",
             ["GCJ-02 (高德/腾讯)", "WGS-84 (GPS)"],
-            index=0 if "GCJ-02" in st.session_state.coord_system else 1
+            index=0 if st.session_state.coord_system == "GCJ-02 (高德/腾讯)" else 1
         )
         st.session_state.coord_system = coord_system
         is_gcj02 = "GCJ-02" in coord_system
         
         st.divider()
         st.header("📍 起点 A")
-        lat_a_input = st.number_input("纬度 A", value=float(st.session_state.coords_a["lat"]), format="%.6f", key="in_lat_a")
-        lon_a_input = st.number_input("经度 A", value=float(st.session_state.coords_a["lon"]), format="%.6f", key="in_lon_a")
+        lat_a_input = st.number_input("纬度 A", value=st.session_state.coords_a["lat"], format="%.6f")
+        lon_a_input = st.number_input("经度 A", value=st.session_state.coords_a["lon"], format="%.6f")
         
         st.header("📍 终点 B")
-        lat_b_input = st.number_input("纬度 B", value=float(st.session_state.coords_b["lat"]), format="%.6f", key="in_lat_b")
-        lon_b_input = st.number_input("经度 B", value=float(st.session_state.coords_b["lon"]), format="%.6f", key="in_lon_b")
+        lat_b_input = st.number_input("纬度 B", value=st.session_state.coords_b["lat"], format="%.6f")
+        lon_b_input = st.number_input("经度 B", value=st.session_state.coords_b["lon"], format="%.6f")
         
         st.header("✈️ 飞行参数")
-        flight_height = st.slider("飞行高度 (m)", 20, 150, int(st.session_state.flight_height))
+        flight_height = st.slider("飞行高度 (m)", 20, 100, st.session_state.flight_height)
         st.session_state.flight_height = flight_height
         
         st.divider()
-        st.subheader("🗂️ 障碍物管理")
+        st.subheader("🗂️ 障碍物持久化")
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("💾 保存配置", use_container_width=True):
+            if st.button("💾 保存障碍物", use_container_width=True):
                 save_obstacles()
         with col2:
-            if st.button("📂 加载配置", use_container_width=True):
+            if st.button("📂 加载障碍物", use_container_width=True):
                 load_obstacles()
-                
-        if st.button("🗑️ 清除全部", use_container_width=True):
+        if st.button("🗑️ 清除全部障碍物", use_container_width=True):
             st.session_state.obstacles = []
             st.session_state.drawn_polygon = None
-            st.rerun()
+            st.success("已清除所有障碍物")
         
         st.divider()
-        st.subheader("➕ 添加障碍物")
-        st.markdown("1. 在地图左侧工具栏选择多边形工具 **⏣**")
-        st.markdown("2. 绘制区域，**点击 Save 按钮**")
-        st.markdown("3. 下方显示捕获后，填写信息并添加")
+        st.subheader("➕ 添加障碍物（多边形圈选）")
+        st.markdown("1️⃣ 在地图上绘制多边形\n2️⃣ **点击 Save 按钮**\n3️⃣ 填写信息并添加")
         
-        # 状态显示
+        # 显示当前捕获的多边形状态
         if st.session_state.drawn_polygon:
-            st.success(f"✅ 已捕获多边形 ({len(st.session_state.drawn_polygon)}个顶点)")
+            st.success(f"✅ 已捕获多边形，顶点数: {len(st.session_state.drawn_polygon)}")
         else:
-            st.info("⏳ 等待绘制...")
-            
-        new_obs_name = st.text_input("名称", placeholder="例如：高压塔")
-        new_obs_height = st.number_input("高度 (米)", 0, 300, 30)
+            st.info("⏳ 尚未捕获多边形，请先绘制")
         
-        if st.button("✅ 确认添加障碍物"):
-            if st.session_state.drawn_polygon:
+        new_obs_name = st.text_input("障碍物名称", placeholder="例如：新建筑")
+        new_obs_height = st.number_input("高度 (米)", min_value=0, max_value=200, value=30)
+        
+        if st.button("✅ 添加已圈选的多边形"):
+            if st.session_state.drawn_polygon and len(st.session_state.drawn_polygon) >= 3:
                 if new_obs_name:
                     st.session_state.obstacles.append({
                         "name": new_obs_name,
                         "coords": st.session_state.drawn_polygon,
                         "height": new_obs_height
                     })
-                    st.success("添加成功！")
-                    st.session_state.drawn_polygon = None # 清空临时缓存
+                    st.success(f"已添加障碍物: {new_obs_name}")
+                    st.session_state.drawn_polygon = None
                     st.rerun()
                 else:
-                    st.warning("请输入名称")
+                    st.error("请输入障碍物名称")
             else:
-                st.error("请先在地图上绘制并保存多边形")
-
-    # --- 坐标处理逻辑 ---
-    # 如果用户输入的是 WGS84，转换为 GCJ02 用于显示
+                st.error("请先在地图上绘制一个多边形（至少3个顶点）")
+        
+        # 备用方案：手动输入多边形
+        st.divider()
+        with st.expander("✏️ 手动输入多边形（备用）"):
+            st.markdown("如果绘制工具无法捕获，可手动输入顶点坐标（经度,纬度），每行一个点。")
+            st.code("示例：\n118.7488,32.2320\n118.7492,32.2320\n118.7492,32.2324\n118.7488,32.2324")
+            manual_coords = st.text_area("多边形顶点（每行一对经纬度）", height=150)
+            manual_name = st.text_input("障碍物名称（手动）", key="manual_name")
+            manual_height = st.number_input("高度 (米)", 0, 200, 30, key="manual_height")
+            if st.button("➕ 手动添加障碍物"):
+                if manual_name and manual_coords.strip():
+                    try:
+                        coords = []
+                        for line in manual_coords.strip().split('\n'):
+                            lng, lat = map(float, line.strip().split(','))
+                            coords.append([lng, lat])
+                        if len(coords) >= 3:
+                            st.session_state.obstacles.append({
+                                "name": manual_name,
+                                "coords": coords,
+                                "height": manual_height
+                            })
+                            st.success(f"已添加障碍物: {manual_name}")
+                            st.rerun()
+                        else:
+                            st.error("至少需要3个顶点")
+                    except Exception as e:
+                        st.error(f"坐标格式错误: {e}")
+                else:
+                    st.error("请输入名称和顶点坐标")
+        
+        with st.expander("📋 当前障碍物列表"):
+            if not st.session_state.obstacles:
+                st.write("暂无障碍物")
+            for i, obs in enumerate(st.session_state.obstacles):
+                st.write(f"{i+1}. {obs['name']} (高{obs['height']}m) - {len(obs['coords'])}个顶点")
+                if st.button(f"❌ 删除 {obs['name']}", key=f"del_{i}"):
+                    st.session_state.obstacles.pop(i)
+                    st.rerun()
+    
+    # 坐标转换
     if is_gcj02:
-        lat_a_disp, lon_a_disp = lat_a_input, lon_a_input
-        lat_b_disp, lon_b_disp = lat_b_input, lon_b_input
+        lat_a_display, lon_a_display = lat_a_input, lon_a_input
+        lat_b_display, lon_b_display = lat_b_input, lon_b_input
     else:
-        lon_a_disp, lat_a_disp = wgs84_to_gcj02(lon_a_input, lat_a_input)
-        lon_b_disp, lat_b_disp = wgs84_to_gcj02(lon_b_input, lat_b_input)
-
-    # 更新 Session State 用于地图渲染
-    st.session_state.coords_a = {"lat": lat_a_disp, "lon": lon_a_disp}
-    st.session_state.coords_b = {"lat": lat_b_disp, "lon": lon_b_disp}
-
-    # 渲染地图
+        lon_a_display, lat_a_display = wgs84_to_gcj02(lon_a_input, lat_a_input)
+        lon_b_display, lat_b_display = wgs84_to_gcj02(lon_b_input, lat_b_input)
+    
+    # 更新 Session State 中的坐标（仅用于显示，不干扰输入框）
+    st.session_state.coords_a = {"lat": lat_a_display, "lon": lon_a_display}
+    st.session_state.coords_b = {"lat": lat_b_display, "lon": lon_b_display}
+    
+    st.subheader("🗺️ 高德卫星地图 - 绘制多边形圈选障碍物")
+    
+    # 创建地图
     m = create_map(
-        st.session_state.coords_a["lat"], st.session_state.coords_a["lon"],
-        st.session_state.coords_b["lat"], st.session_state.coords_b["lon"],
+        lat_a_display, lon_a_display,
+        lat_b_display, lon_b_display,
         st.session_state.obstacles,
         flight_height
     )
     
-    st.subheader("🗺️ 操作地图")
-    # 关键修复：增加 return_on_hover=False (默认) 即可，重点在于下面的解析逻辑
+    # 使用 st_folium 并捕获绘图数据
     output = st_folium(m, width=900, height=600, key="map_draw")
-
-    # --- 修复后的数据捕获逻辑 ---
+    
+    # ==================== 核心修复逻辑 ====================
+    # 修复点：同时检查 last_active_draw (点击Save) 和 all_drawings (实时状态)
     if output:
-        # 1. 优先检查 Save 动作 (last_active_draw)
+        draw_data = None
+        
+        # 1. 优先检查点击 Save 后的数据
         if output.get("last_active_draw"):
             draw_data = output["last_active_draw"]
-            geometry = draw_data.get("geometry")
+        # 2. 如果没有 Save 数据，但地图上有图形（all_drawings），也尝试获取
+        elif output.get("all_drawings") and len(output["all_drawings"]) > 0:
+            # 取最后一个绘制的图形
+            draw_data = output["all_drawings"][-1]
             
-            if geometry and geometry["type"] == "Polygon":
-                # 提取坐标 [[lng, lat], ...]
-                coords_raw = geometry["coordinates"][0]
-                # 确保闭合（去掉最后一个重复点，如果有的话，虽然folium通常处理得很好）
-                polygon_coords = [[c[0], c[1]] for c in coords_raw]
+        if draw_data and draw_data.get("geometry"):
+            coords_original = []
+            # 处理 Polygon 和 MultiPolygon
+            if draw_data["geometry"]["type"] == "Polygon":
+                coords_original = draw_data["geometry"]["coordinates"][0]
+            elif draw_data["geometry"]["type"] == "MultiPolygon":
+                coords_original = draw_data["geometry"]["coordinates"][0][0]
+            
+            if coords_original:
+                # 转换为 [[lng, lat], ...]
+                polygon_coords = [[c[0], c[1]] for c in coords_original]
                 
-                # 只有当新数据与旧数据不同时才更新，防止死循环
+                # 只有当捕获的坐标发生变化时才更新，避免不必要的 rerun
                 if polygon_coords != st.session_state.drawn_polygon:
                     st.session_state.drawn_polygon = polygon_coords
+                    st.success(f"✅ 捕获到多边形！顶点数: {len(polygon_coords)} (请点击 Save 确认)")
                     st.rerun()
 
-        # 2. 备选检查：有时候 Save 没反应，但 all_drawings 里有最新数据
-        # 注意：这可能会导致轻微的性能消耗，但在单机应用中可接受
-        elif output.get("all_drawings"):
-            drawings = output["all_drawings"]
-            if len(drawings) > 0:
-                # 取最后一个绘制的图形
-                last_draw = drawings[-1]
-                if last_draw.get("geometry", {}).get("type") == "Polygon":
-                    coords_raw = last_draw["geometry"]["coordinates"][0]
-                    polygon_coords = [[c[0], c[1]] for c in coords_raw]
-                    
-                    if polygon_coords != st.session_state.drawn_polygon:
-                         # 这里不自动 rerun，避免用户还在画的时候频繁刷新，
-                         # 但可以在界面上提示用户“检测到新图形，请点击 Save”
-                         pass
-
-    # 调试用：显示原始数据（可折叠）
-    with st.expander("🐞 调试：查看地图返回数据"):
-        st.json(output)
-
-    # 底部图例
-    st.markdown("---")
-    c1, c2, c3 = st.columns(3)
-    c1.markdown("🟢 **起点**")
-    c2.markdown("🔴 **终点**")
-    c3.markdown("🟠 **障碍物**")
+    # 图例
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.markdown("🟢 **绿色标记** = 起点A")
+    with col2:
+        st.markdown("🔴 **红色标记** = 终点B")
+    with col3:
+        st.markdown("🟠 **橙色多边形** = 障碍物")
+    with col4:
+        st.markdown("🔴 **红线** = 飞行航线")
+    
+    st.divider()
+    st.subheader("📐 坐标信息")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.info(f"**起点A** (GCJ-02)\n- 纬度: {lat_a_display:.6f}\n- 经度: {lon_a_display:.6f}")
+    with col2:
+        st.info(f"**终点B** (GCJ-02)\n- 纬度: {lat_b_display:.6f}\n- 经度: {lon_b_display:.6f}")
+    
+    st.caption(f"飞行高度: {flight_height} 米 | 障碍物数量: {len(st.session_state.obstacles)} 个 | 坐标系: {coord_system}")
 
 # ==================== 飞行监控页面 ====================
 else:
     st.title("📡 飞行监控 - 心跳监测")
     
     with st.sidebar:
-        st.header("🎮 控制")
+        st.divider()
+        st.header("🎮 心跳控制")
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("▶️ 开始", use_container_width=True):
+            if st.button("▶️ 开始模拟", use_container_width=True):
                 st.session_state.running = True
         with col2:
-            if st.button("⏹️ 停止", use_container_width=True):
+            if st.button("⏹️ 停止模拟", use_container_width=True):
                 st.session_state.running = False
-                
-        if st.button("🗑️ 清空记录", use_container_width=True):
+        if st.button("🗑️ 清空数据", use_container_width=True):
             st.session_state.heartbeats = []
-            st.rerun()
-            
+            st.session_state.last_time = time.time()
+            st.session_state.running = False
         st.divider()
-        st.info(f"**当前任务**\nA: {st.session_state.coords_a['lat']:.4f}, {st.session_state.coords_a['lon']:.4f}\nB: {st.session_state.coords_b['lat']:.4f}, {st.session_state.coords_b['lon']:.4f}")
-
-    # 模拟心跳
+        st.subheader("✈️ 当前航线")
+        st.caption(f"起点A: {st.session_state.coords_a['lat']:.6f}, {st.session_state.coords_a['lon']:.6f}")
+        st.caption(f"终点B: {st.session_state.coords_b['lat']:.6f}, {st.session_state.coords_b['lon']:.6f}")
+        st.caption(f"飞行高度: {st.session_state.flight_height} 米")
+        st.caption(f"坐标系: {st.session_state.coord_system}")
+    
+    # 心跳生成
+    def generate_heartbeat():
+        seq = len(st.session_state.heartbeats) + 1
+        now = datetime.now()
+        st.session_state.heartbeats.append({
+            "序号": seq,
+            "时间": now,
+            "延迟(秒)": round(time.time() - st.session_state.last_time, 3)
+        })
+        st.session_state.last_time = time.time()
+    
     if st.session_state.running:
         current_time = time.time()
-        if current_time - st.session_state.last_time >= 1.0: # 1秒一次
-            seq = len(st.session_state.heartbeats) + 1
-            st.session_state.heartbeats.append({
-                "序号": seq,
-                "时间": datetime.now().strftime("%H:%M:%S"),
-                "延迟": round(time.time() - st.session_state.last_time, 3),
-                "状态": "正常"
-            })
-            st.session_state.last_time = current_time
+        if current_time - st.session_state.last_time >= 1:
+            generate_heartbeat()
             st.rerun()
-
-    # 仪表盘
+    
+    # 状态卡片
     st.subheader("📊 实时状态")
-    if st.session_state.heartbeats:
+    col1, col2, col3, col4 = st.columns(4)
+    if len(st.session_state.heartbeats) > 0:
         latest = st.session_state.heartbeats[-1]
-        # 简单的掉线判断逻辑
-        is_online = (time.time() - st.session_state.last_time) < 3.0
+        last_beat_time = latest["时间"].timestamp()
+        seconds_since = time.time() - last_beat_time
         
-        c1, c2, c3 = st.columns(3)
-        c1.metric("最新序号", latest["序号"])
-        c2.metric("信号延迟", f"{latest['延迟']}s", delta_color="inverse")
-        c3.metric("连接状态", "🟢 在线" if is_online else "🔴 掉线", delta="实时更新")
+        with col1:
+            st.metric("最新心跳序号", latest["序号"])
+        with col2:
+            st.metric("最后心跳间隔", f"{latest['延迟(秒)']} 秒")
+        with col3:
+            if seconds_since > 3:
+                st.metric("连接状态", "⚠️ 掉线", delta=f"{seconds_since:.1f}秒无响应")
+            else:
+                st.metric("连接状态", "✅ 在线", delta=f"{seconds_since:.1f}秒前")
+        with col4:
+            st.metric("总心跳数", len(st.session_state.heartbeats))
         
-        if not is_online:
-            st.error("⚠️ 警告：超过3秒未收到心跳包！")
+        if seconds_since > 3:
+            st.error(f"🚨 无人机掉线！已 {seconds_since:.1f} 秒未收到心跳包！")
+        else:
+            st.success(f"📡 无人机在线 | 最后心跳: {latest['时间'].strftime('%H:%M:%S')}")
     else:
-        st.info("等待启动模拟...")
-
-    # 图表
-    if st.session_state.heartbeats:
+        for col in [col1, col2, col3, col4]:
+            with col:
+                st.metric("---", "等待启动")
+        st.info("点击左侧「开始模拟」启动心跳监测")
+    
+    st.divider()
+    
+    # 可视化
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        st.subheader("📈 心跳序号变化趋势")
         df = pd.DataFrame(st.session_state.heartbeats)
-        st.line_chart(df.set_index("时间")["序号"])
-        st.dataframe(df, use_container_width=True)
+        if not df.empty:
+            st.line_chart(df.set_index("时间")["序号"], use_container_width=True)
+        else:
+            st.info("暂无心跳数据")
+    with col2:
+        st.subheader("📋 最近心跳记录")
+        if 'df' in locals() and not df.empty:
+            st.dataframe(df.tail(10), use_container_width=True)
+        else:
+            st.info("暂无数据")
+    st.caption("提示：每秒自动发送一次心跳包，超过3秒无响应触发掉线报警")
