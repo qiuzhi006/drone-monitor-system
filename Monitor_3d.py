@@ -130,7 +130,6 @@ def create_map(lat_a, lon_a, lat_b, lon_b, obstacles, height):
     
     # 添加缩放控件
     folium.plugins.ScrollZoomToggler().add_to(m)
-    folium.ControlZoom(position='topleft').add_to(m)
     
     # 航线
     folium.PolyLine(
