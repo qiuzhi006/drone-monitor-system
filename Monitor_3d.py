@@ -82,33 +82,7 @@ if "coord_system" not in st.session_state:
 if "page" not in st.session_state:
     st.session_state.page = "飞行监控"
 if "obstacles" not in st.session_state:
-  st.session_state.obstacles = [
-    {
-        "name": "教学楼1",
-        "coords": [[118.7488, 32.2320], [118.7492, 32.2320], [118.7492, 32.2324], [118.7488, 32.2324]],
-        "height": 30
-    },
-    {
-        "name": "教学楼2",
-        "coords": [[118.7490, 32.2332], [118.7494, 32.2332], [118.7494, 32.2336], [118.7490, 32.2336]],
-        "height": 35
-    },
-    {
-        "name": "图书馆",
-        "coords": [[118.7492, 32.2340], [118.7496, 32.2340], [118.7496, 32.2344], [118.7492, 32.2344]],
-        "height": 25
-    },
-    {
-        "name": "食堂",
-        "coords": [[118.7495, 32.2348], [118.7499, 32.2348], [118.7499, 32.2352], [118.7495, 32.2352]],
-        "height": 20
-    },
-    {
-        "name": "宿舍楼",
-        "coords": [[118.7498, 32.2355], [118.7502, 32.2355], [118.7502, 32.2359], [118.7498, 32.2359]],
-        "height": 28
-    }
-]
+    st.session_state.obstacles = []
 if "drawn_polygon" not in st.session_state:
     st.session_state.drawn_polygon = None
 
@@ -145,12 +119,12 @@ def create_map(lat_a, lon_a, lat_b, lon_b, obstacles, height):
     center_lat = (lat_a + lat_b) / 2
     center_lon = (lon_a + lon_b) / 2
     
-    # 高德卫星图（style=6 卫星图，支持GCJ-02）
+    # 替换为公开地图瓦片，避免加载失败
     m = folium.Map(
         location=[center_lat, center_lon],
         zoom_start=17,
-        tiles='https://webst01.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}',
-        attr='高德卫星地图'
+        tiles='OpenStreetMap',
+        attr='OpenStreetMap'
     )
     
     # 航线
@@ -178,7 +152,7 @@ def create_map(lat_a, lon_a, lat_b, lon_b, obstacles, height):
     
     # 障碍物多边形
     for obs in obstacles:
-        polygon_coords = [[coord[1], coord[0]] for coord in obs["coords"]]  # [lat, lng]
+        polygon_coords = [[coord[1], coord[0]] for coord in obs["coords"]]
         folium.Polygon(
             locations=polygon_coords,
             color='orange',
@@ -206,7 +180,7 @@ def create_map(lat_a, lon_a, lat_b, lon_b, obstacles, height):
         )
     ).add_to(m)
     
-    # 添加绘图控件（只允许绘制多边形）
+    # 添加绘图控件
     draw = folium.plugins.Draw(
         draw_options={
             'polyline': False,
@@ -266,7 +240,7 @@ if st.session_state.page == "航线规划":
         
         st.divider()
         st.subheader("➕ 添加障碍物（多边形圈选）")
-        st.markdown("1️⃣ 在地图上绘制多边形（工具栏⏢，最后**双击**结束）\n2️⃣ 捕获成功后下方会显示顶点数\n3️⃣ 填写名称和高度，点击添加")
+        st.markdown("1️⃣ 在地图绘制多边形，双击结束\n2️⃣ 捕获成功后显示顶点数\n3️⃣ 填写信息点击添加")
         
         # 显示当前捕获的多边形状态
         if st.session_state.drawn_polygon:
@@ -290,16 +264,16 @@ if st.session_state.page == "航线规划":
                 else:
                     st.error("请输入障碍物名称")
             else:
-                st.error("请先在地图上绘制一个多边形（至少3个顶点）")
+                st.error("请先在地图上绘制至少3个顶点的多边形")
         
-        # 备用方案：手动输入多边形
+        # 手动输入多边形
         st.divider()
         with st.expander("✏️ 手动输入多边形（备用）"):
-            st.markdown("如果绘制工具无法捕获，可手动输入顶点坐标（经度,纬度），每行一个点。")
-            st.code("示例：\n118.7488,32.2320\n118.7492,32.2320\n118.7492,32.2324\n118.7488,32.2324")
-            manual_coords = st.text_area("多边形顶点（每行一对经纬度）", height=150)
-            manual_name = st.text_input("障碍物名称（手动）", key="manual_name")
-            manual_height = st.number_input("高度 (米)", 0, 200, 30, key="manual_height")
+            st.markdown("坐标格式：经度,纬度，每行一个点")
+            st.code("示例：\n118.7488,32.2320\n118.7492,32.2320\n118.7492,32.2324")
+            manual_coords = st.text_area("多边形顶点", height=150, key="manual_area")
+            manual_name = st.text_input("障碍物名称", key="manual_name")
+            manual_height = st.number_input("高度", 0, 200, 30, key="manual_height")
             if st.button("➕ 手动添加障碍物"):
                 if manual_name and manual_coords.strip():
                     try:
@@ -313,85 +287,69 @@ if st.session_state.page == "航线规划":
                                 "coords": coords,
                                 "height": manual_height
                             })
-                            st.success(f"已添加障碍物: {manual_name}")
+                            st.success(f"已添加: {manual_name}")
                             st.rerun()
                         else:
                             st.error("至少需要3个顶点")
                     except Exception as e:
                         st.error(f"坐标格式错误: {e}")
                 else:
-                    st.error("请输入名称和顶点坐标")
+                    st.error("请输入名称和坐标")
         
+        # 障碍物列表
         with st.expander("📋 当前障碍物列表"):
             if not st.session_state.obstacles:
                 st.write("暂无障碍物")
             for i, obs in enumerate(st.session_state.obstacles):
-                st.write(f"{i+1}. {obs['name']} (高{obs['height']}m) - {len(obs['coords'])}个顶点")
+                st.write(f"{i+1}. {obs['name']} | 高{obs['height']}m | {len(obs['coords'])}个点")
                 if st.button(f"❌ 删除 {obs['name']}", key=f"del_{i}"):
                     st.session_state.obstacles.pop(i)
                     st.rerun()
     
     # 坐标转换
     if is_gcj02:
-        lat_a_display, lon_a_display = lat_a_input, lon_a_input
-        lat_b_display, lon_b_display = lat_b_input, lon_b_input
+        lat_a_show, lon_a_show = lat_a_input, lon_a_input
+        lat_b_show, lon_b_show = lat_b_input, lon_b_input
     else:
-        lon_a_display, lat_a_display = wgs84_to_gcj02(lon_a_input, lat_a_input)
-        lon_b_display, lat_b_display = wgs84_to_gcj02(lon_b_input, lat_b_input)
+        lon_a_show, lat_a_show = wgs84_to_gcj02(lon_a_input, lat_a_input)
+        lon_b_show, lat_b_show = wgs84_to_gcj02(lon_b_input, lat_b_input)
     
-    st.session_state.coords_a = {"lat": lat_a_display, "lon": lon_a_display}
-    st.session_state.coords_b = {"lat": lat_b_display, "lon": lon_b_display}
+    st.session_state.coords_a = {"lat": lat_a_show, "lon": lon_a_show}
+    st.session_state.coords_b = {"lat": lat_b_show, "lon": lon_b_show}
     
-    st.subheader("🗺️ 高德卫星地图 - 绘制多边形圈选障碍物")
-    
-    # 创建地图
+    st.subheader("🗺️ 地图 - 圈选障碍物")
     m = create_map(
-        lat_a_display, lon_a_display,
-        lat_b_display, lon_b_display,
+        lat_a_show, lon_a_show,
+        lat_b_show, lon_b_show,
         st.session_state.obstacles,
         flight_height
     )
     
-    # 使用 st_folium 并捕获绘图数据
+    # 核心修复：捕获绘制多边形数据
     output = st_folium(m, width=900, height=600, key="map_draw")
-    
-    # 解析用户绘制的多边形（兼容不同版本的输出格式）
-    if output and "last_active_draw" in output and output["last_active_draw"]:
-        draw_data = output["last_active_draw"]
-        # 尝试提取多边形坐标
-        if "geometry" in draw_data and draw_data["geometry"]["type"] == "Polygon":
-            coords_original = draw_data["geometry"]["coordinates"][0]
-            # 转换为 [[lng, lat], ...]
-            polygon_coords = [[c[0], c[1]] for c in coords_original]
-            st.session_state.drawn_polygon = polygon_coords
-            st.success(f"✅ 已捕获多边形（{len(polygon_coords)}个顶点），请填写名称和高度后点击添加")
-        elif "geometry" in draw_data and draw_data["geometry"]["type"] == "MultiPolygon":
-            # 取第一个多边形
-            coords_original = draw_data["geometry"]["coordinates"][0][0]
-            polygon_coords = [[c[0], c[1]] for c in coords_original]
-            st.session_state.drawn_polygon = polygon_coords
-            st.success(f"✅ 已捕获多边形（{len(polygon_coords)}个顶点），请填写名称和高度后点击添加")
+    if output:
+        # 兼容多版本数据格式
+        all_draws = output.get("all_draws", [])
+        if all_draws:
+            last_draw = all_draws[-1]
+            if last_draw.get("geometry", {}).get("type") == "Polygon":
+                coords = last_draw["geometry"]["coordinates"][0]
+                st.session_state.drawn_polygon = [[p[0], p[1]] for p in coords]
     
     # 图例
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.markdown("🟢 **绿色标记** = 起点A")
-    with col2:
-        st.markdown("🔴 **红色标记** = 终点B")
-    with col3:
-        st.markdown("🟠 **橙色多边形** = 障碍物")
-    with col4:
-        st.markdown("🔴 **红线** = 飞行航线")
+    cols = st.columns(4)
+    with cols[0]: st.markdown("🟢 起点A")
+    with cols[1]: st.markdown("🔴 终点B")
+    with cols[2]: st.markdown("🟠 障碍物")
+    with cols[3]: st.markdown("🔴 飞行航线")
     
+    # 坐标信息
     st.divider()
-    st.subheader("📐 坐标信息")
     col1, col2 = st.columns(2)
     with col1:
-        st.info(f"**起点A** (GCJ-02)\n- 纬度: {lat_a_display:.6f}\n- 经度: {lon_a_display:.6f}")
+        st.info(f"**起点A(GCJ-02)**\n纬度: {lat_a_show:.6f}\n经度: {lon_a_show:.6f}")
     with col2:
-        st.info(f"**终点B** (GCJ-02)\n- 纬度: {lat_b_display:.6f}\n- 经度: {lon_b_display:.6f}")
-    
-    st.caption(f"飞行高度: {flight_height} 米 | 障碍物数量: {len(st.session_state.obstacles)} 个 | 坐标系: {coord_system}")
+        st.info(f"**终点B(GCJ-02)**\n纬度: {lat_b_show:.6f}\n经度: {lon_b_show:.6f}")
 
 # ==================== 飞行监控页面 ====================
 else:
@@ -404,6 +362,7 @@ else:
         with col1:
             if st.button("▶️ 开始模拟", use_container_width=True):
                 st.session_state.running = True
+                st.session_state.last_time = time.time()
         with col2:
             if st.button("⏹️ 停止模拟", use_container_width=True):
                 st.session_state.running = False
@@ -411,14 +370,14 @@ else:
             st.session_state.heartbeats = []
             st.session_state.last_time = time.time()
             st.session_state.running = False
+        
         st.divider()
         st.subheader("✈️ 当前航线")
-        st.caption(f"起点A: {st.session_state.coords_a['lat']:.6f}, {st.session_state.coords_a['lon']:.6f}")
-        st.caption(f"终点B: {st.session_state.coords_b['lat']:.6f}, {st.session_state.coords_b['lon']:.6f}")
-        st.caption(f"飞行高度: {st.session_state.flight_height} 米")
-        st.caption(f"坐标系: {st.session_state.coord_system}")
+        st.caption(f"A: {st.session_state.coords_a['lat']:.6f}, {st.session_state.coords_a['lon']:.6f}")
+        st.caption(f"B: {st.session_state.coords_b['lat']:.6f}, {st.session_state.coords_b['lon']:.6f}")
+        st.caption(f"高度: {st.session_state.flight_height}m")
     
-    # 心跳生成
+    # 心跳生成（优化刷新逻辑）
     def generate_heartbeat():
         seq = len(st.session_state.heartbeats) + 1
         now = datetime.now()
@@ -430,56 +389,43 @@ else:
         st.session_state.last_time = time.time()
     
     if st.session_state.running:
-        current_time = time.time()
-        if current_time - st.session_state.last_time >= 1:
+        if time.time() - st.session_state.last_time >= 1:
             generate_heartbeat()
+            time.sleep(0.1)
             st.rerun()
     
-    # 状态卡片
+    # 状态展示
     st.subheader("📊 实时状态")
     col1, col2, col3, col4 = st.columns(4)
-    if len(st.session_state.heartbeats) > 0:
+    if st.session_state.heartbeats:
         latest = st.session_state.heartbeats[-1]
-        last_beat_time = latest["时间"].timestamp()
-        seconds_since = time.time() - last_beat_time
+        gap = time.time() - latest["时间"].timestamp()
         
-        with col1:
-            st.metric("最新心跳序号", latest["序号"])
-        with col2:
-            st.metric("最后心跳间隔", f"{latest['延迟(秒)']} 秒")
-        with col3:
-            if seconds_since > 3:
-                st.metric("连接状态", "⚠️ 掉线", delta=f"{seconds_since:.1f}秒无响应")
-            else:
-                st.metric("连接状态", "✅ 在线", delta=f"{seconds_since:.1f}秒前")
-        with col4:
-            st.metric("总心跳数", len(st.session_state.heartbeats))
-        
-        if seconds_since > 3:
-            st.error(f"🚨 无人机掉线！已 {seconds_since:.1f} 秒未收到心跳包！")
+        col1.metric("最新心跳序号", latest["序号"])
+        col2.metric("最后间隔", f"{latest['延迟(秒)']}s")
+        if gap > 3:
+            col3.metric("状态", "⚠️ 掉线", f"{gap:.1f}s无响应")
         else:
-            st.success(f"📡 无人机在线 | 最后心跳: {latest['时间'].strftime('%H:%M:%S')}")
+            col3.metric("状态", "✅ 在线", f"{gap:.1f}s")
+        col4.metric("总心跳数", len(st.session_state.heartbeats))
+        
+        if gap > 3:
+            st.error(f"🚨 无人机掉线！{gap:.1f}秒未收到心跳")
+        else:
+            st.success(f"📡 在线 | 最后心跳: {latest['时间'].strftime('%H:%M:%S')}")
     else:
-        for col in [col1, col2, col3, col4]:
-            with col:
-                st.metric("---", "等待启动")
-        st.info("点击左侧「开始模拟」启动心跳监测")
+        for c in [col1, col2, col3, col4]: c.metric("---", "等待启动")
+        st.info("点击开始模拟")
     
+    # 图表与数据
     st.divider()
-    
-    # 可视化
-    col1, col2 = st.columns([2, 1])
-    with col1:
-        st.subheader("📈 心跳序号变化趋势")
+    c1, c2 = st.columns([2, 1])
+    with c1:
+        st.subheader("📈 心跳趋势")
         df = pd.DataFrame(st.session_state.heartbeats)
         if not df.empty:
-            st.line_chart(df.set_index("时间")["序号"], use_container_width=True)
-        else:
-            st.info("暂无心跳数据")
-    with col2:
-        st.subheader("📋 最近心跳记录")
+            st.line_chart(df.set_index("时间")["序号"])
+    with c2:
+        st.subheader("📋 最近记录")
         if not df.empty:
             st.dataframe(df.tail(10), use_container_width=True)
-        else:
-            st.info("暂无数据")
-    st.caption("提示：每秒自动发送一次心跳包，超过3秒无响应触发掉线报警")
