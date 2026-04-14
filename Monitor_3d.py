@@ -6,7 +6,7 @@ from streamlit_folium import st_folium
 import math
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 
 st.set_page_config(layout="wide", page_title="无人机监测系统")
 
@@ -64,12 +64,12 @@ def gcj02_to_wgs84(lng, lat):
     sqrtmagic = math.sqrt(magic)
     dlat = (dlat * 180.0) / ((a * (1 - ee)) / (magic * sqrtmagic) * pi)
     dlng = (dlng * 180.0) / (a / sqrtmagic * math.cos(radlat) * pi)
-    return lng - dlng, lat - dlat
+    return lng - dlng, lat - dlng
 
 # ==================== 初始化 Session State ====================
 if "heartbeats" not in st.session_state:
     st.session_state.heartbeats = []
-    st.session_state.last_time = time.time()
+    st.session_state.last_valid_heartbeat = datetime.now()
     st.session_state.running = False
 if "coords_a" not in st.session_state:
     st.session_state.coords_a = {"lat": 32.2305, "lon": 118.7485}
@@ -114,17 +114,22 @@ with st.sidebar:
     page = st.radio("功能页面", ["飞行监控", "航线规划"])
     st.session_state.page = page
 
-# ==================== 创建地图函数 ====================
+# ==================== 创建地图函数（恢复高德/百度高清瓦片） ====================
 def create_map(lat_a, lon_a, lat_b, lon_b, obstacles, height):
     center_lat = (lat_a + lat_b) / 2
     center_lon = (lon_a + lon_b) / 2
     
-    # 替换为公开地图瓦片，避免加载失败
+    # 核心修复：使用高德/百度高清瓦片，恢复你之前的效果
+    # 注意：非官方调用仅用于测试，正式使用请申请官方Key
+    map_tiles = 'https://webrd02.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}'
+    map_attr = '高德地图'
+    
     m = folium.Map(
         location=[center_lat, center_lon],
         zoom_start=17,
-        tiles='OpenStreetMap',
-        attr='OpenStreetMap'
+        tiles=map_tiles,
+        attr=map_attr,
+        control_scale=True
     )
     
     # 航线
@@ -242,7 +247,6 @@ if st.session_state.page == "航线规划":
         st.subheader("➕ 添加障碍物（多边形圈选）")
         st.markdown("1️⃣ 在地图绘制多边形，双击结束\n2️⃣ 捕获成功后显示顶点数\n3️⃣ 填写信息点击添加")
         
-        # 显示当前捕获的多边形状态
         if st.session_state.drawn_polygon:
             st.success(f"✅ 已捕获多边形，顶点数: {len(st.session_state.drawn_polygon)}")
         else:
@@ -310,122 +314,3 @@ if st.session_state.page == "航线规划":
     if is_gcj02:
         lat_a_show, lon_a_show = lat_a_input, lon_a_input
         lat_b_show, lon_b_show = lat_b_input, lon_b_input
-    else:
-        lon_a_show, lat_a_show = wgs84_to_gcj02(lon_a_input, lat_a_input)
-        lon_b_show, lat_b_show = wgs84_to_gcj02(lon_b_input, lat_b_input)
-    
-    st.session_state.coords_a = {"lat": lat_a_show, "lon": lon_a_show}
-    st.session_state.coords_b = {"lat": lat_b_show, "lon": lon_b_show}
-    
-    st.subheader("🗺️ 地图 - 圈选障碍物")
-    m = create_map(
-        lat_a_show, lon_a_show,
-        lat_b_show, lon_b_show,
-        st.session_state.obstacles,
-        flight_height
-    )
-    
-    # 核心修复：捕获绘制多边形数据
-    output = st_folium(m, width=900, height=600, key="map_draw")
-    if output:
-        # 兼容多版本数据格式
-        all_draws = output.get("all_draws", [])
-        if all_draws:
-            last_draw = all_draws[-1]
-            if last_draw.get("geometry", {}).get("type") == "Polygon":
-                coords = last_draw["geometry"]["coordinates"][0]
-                st.session_state.drawn_polygon = [[p[0], p[1]] for p in coords]
-    
-    # 图例
-    cols = st.columns(4)
-    with cols[0]: st.markdown("🟢 起点A")
-    with cols[1]: st.markdown("🔴 终点B")
-    with cols[2]: st.markdown("🟠 障碍物")
-    with cols[3]: st.markdown("🔴 飞行航线")
-    
-    # 坐标信息
-    st.divider()
-    col1, col2 = st.columns(2)
-    with col1:
-        st.info(f"**起点A(GCJ-02)**\n纬度: {lat_a_show:.6f}\n经度: {lon_a_show:.6f}")
-    with col2:
-        st.info(f"**终点B(GCJ-02)**\n纬度: {lat_b_show:.6f}\n经度: {lon_b_show:.6f}")
-
-# ==================== 飞行监控页面 ====================
-else:
-    st.title("📡 飞行监控 - 心跳监测")
-    
-    with st.sidebar:
-        st.divider()
-        st.header("🎮 心跳控制")
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("▶️ 开始模拟", use_container_width=True):
-                st.session_state.running = True
-                st.session_state.last_time = time.time()
-        with col2:
-            if st.button("⏹️ 停止模拟", use_container_width=True):
-                st.session_state.running = False
-        if st.button("🗑️ 清空数据", use_container_width=True):
-            st.session_state.heartbeats = []
-            st.session_state.last_time = time.time()
-            st.session_state.running = False
-        
-        st.divider()
-        st.subheader("✈️ 当前航线")
-        st.caption(f"A: {st.session_state.coords_a['lat']:.6f}, {st.session_state.coords_a['lon']:.6f}")
-        st.caption(f"B: {st.session_state.coords_b['lat']:.6f}, {st.session_state.coords_b['lon']:.6f}")
-        st.caption(f"高度: {st.session_state.flight_height}m")
-    
-    # 心跳生成（优化刷新逻辑）
-    def generate_heartbeat():
-        seq = len(st.session_state.heartbeats) + 1
-        now = datetime.now()
-        st.session_state.heartbeats.append({
-            "序号": seq,
-            "时间": now,
-            "延迟(秒)": round(time.time() - st.session_state.last_time, 3)
-        })
-        st.session_state.last_time = time.time()
-    
-    if st.session_state.running:
-        if time.time() - st.session_state.last_time >= 1:
-            generate_heartbeat()
-            time.sleep(0.1)
-            st.rerun()
-    
-    # 状态展示
-    st.subheader("📊 实时状态")
-    col1, col2, col3, col4 = st.columns(4)
-    if st.session_state.heartbeats:
-        latest = st.session_state.heartbeats[-1]
-        gap = time.time() - latest["时间"].timestamp()
-        
-        col1.metric("最新心跳序号", latest["序号"])
-        col2.metric("最后间隔", f"{latest['延迟(秒)']}s")
-        if gap > 3:
-            col3.metric("状态", "⚠️ 掉线", f"{gap:.1f}s无响应")
-        else:
-            col3.metric("状态", "✅ 在线", f"{gap:.1f}s")
-        col4.metric("总心跳数", len(st.session_state.heartbeats))
-        
-        if gap > 3:
-            st.error(f"🚨 无人机掉线！{gap:.1f}秒未收到心跳")
-        else:
-            st.success(f"📡 在线 | 最后心跳: {latest['时间'].strftime('%H:%M:%S')}")
-    else:
-        for c in [col1, col2, col3, col4]: c.metric("---", "等待启动")
-        st.info("点击开始模拟")
-    
-    # 图表与数据
-    st.divider()
-    c1, c2 = st.columns([2, 1])
-    with c1:
-        st.subheader("📈 心跳趋势")
-        df = pd.DataFrame(st.session_state.heartbeats)
-        if not df.empty:
-            st.line_chart(df.set_index("时间")["序号"])
-    with c2:
-        st.subheader("📋 最近记录")
-        if not df.empty:
-            st.dataframe(df.tail(10), use_container_width=True)
