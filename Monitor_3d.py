@@ -72,9 +72,9 @@ if "heartbeats" not in st.session_state:
     st.session_state.last_time = time.time()
     st.session_state.running = False
 if "coords_a" not in st.session_state:
-    st.session_state.coords_a = {"lat": 32.2305, "lon": 118.7485}
+    st.session_state.coords_a = {"lat": 32.230500, "lon": 118.748500}
 if "coords_b" not in st.session_state:
-    st.session_state.coords_b = {"lat": 32.2365, "lon": 118.7500}
+    st.session_state.coords_b = {"lat": 32.23800, "lon": 118.754000}
 if "flight_height" not in st.session_state:
     st.session_state.flight_height = 50
 if "coord_system" not in st.session_state:
