@@ -409,25 +409,22 @@ else:
         st.caption(f"飞行高度: {st.session_state.flight_height} 米")
         st.caption(f"坐标系: {st.session_state.coord_system}")
     
-    # 心跳生成
-def generate_heartbeat():
-    seq = len(st.session_state.heartbeats) + 1
-    now = datetime.now()
-    st.session_state.heartbeats.append({
-        "序号": seq,
-        "时间": now,
-        "延迟(秒)": round(time.time() - st.session_state.last_time, 3)
-    })
-    st.session_state.last_time = time.time()
-
+      # 心跳生成
+    def generate_heartbeat():
+        seq = len(st.session_state.heartbeats) + 1
+        now = datetime.now()
+        st.session_state.heartbeats.append({
+            "序号": seq,
+            "时间": now,
+            "延迟(秒)": round(time.time() - st.session_state.last_time, 3)
+        })
+        st.session_state.last_time = time.time()
+    
     if st.session_state.running:
-        # 获取当前时间戳
         current_time = time.time()
-
-        # 核心逻辑：只有当距离上一次心跳超过 1 秒时，才执行生成和重绘
         if current_time - st.session_state.last_time >= 1:
-            generate_heartbeat() # 生成新数据
-            st.rerun()           # 立即刷新页面显示新数据
+            generate_heartbeat()
+            st.rerun()
 
     
     # 状态卡片
