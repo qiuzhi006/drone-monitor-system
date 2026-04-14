@@ -420,11 +420,14 @@ def generate_heartbeat():
     })
     st.session_state.last_time = time.time()
 
-if st.session_state.running:
-    # 强制等待 1 秒，确保心跳间隔均匀
-    time.sleep(1)
-    generate_heartbeat()
-    st.rerun()
+    if st.session_state.running:
+        # 获取当前时间戳
+        current_time = time.time()
+
+        # 核心逻辑：只有当距离上一次心跳超过 1 秒时，才执行生成和重绘
+        if current_time - st.session_state.last_time >= 1:
+            generate_heartbeat() # 生成新数据
+            st.rerun()           # 立即刷新页面显示新数据
 
     
     # 状态卡片
