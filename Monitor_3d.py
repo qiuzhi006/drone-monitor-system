@@ -410,21 +410,22 @@ else:
         st.caption(f"坐标系: {st.session_state.coord_system}")
     
     # 心跳生成
-    def generate_heartbeat():
-        seq = len(st.session_state.heartbeats) + 1
-        now = datetime.now()
-        st.session_state.heartbeats.append({
-            "序号": seq,
-            "时间": now,
-            "延迟(秒)": round(time.time() - st.session_state.last_time, 3)
-        })
-        st.session_state.last_time = time.time()
-    
-    if st.session_state.running:
-        current_time = time.time()
-        if current_time - st.session_state.last_time >= 1:
-            generate_heartbeat()
-            st.rerun()
+def generate_heartbeat():
+    seq = len(st.session_state.heartbeats) + 1
+    now = datetime.now()
+    st.session_state.heartbeats.append({
+        "序号": seq,
+        "时间": now,
+        "延迟(秒)": round(time.time() - st.session_state.last_time, 3)
+    })
+    st.session_state.last_time = time.time()
+
+if st.session_state.running:
+    # 强制等待 1 秒，确保心跳间隔均匀
+    time.sleep(1)
+    generate_heartbeat()
+    st.rerun()
+
     
     # 状态卡片
     st.subheader("📊 实时状态")
