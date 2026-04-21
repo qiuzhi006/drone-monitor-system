@@ -292,6 +292,9 @@ def create_complete_map(lat_a, lon_a, lat_b, lon_b, obstacles, flight_height, sa
     return m
 
 # ==================== 航线规划页面 ====================
+# 在代码最开始的地方，初始化 session_state 变量
+if 'drawn_polygon' not in st.session_state:
+    st.session_state.drawn_polygon = []  # 或者 None，取决于你的逻辑
 if st.session_state.page == "航线规划":
     st.title("🗺️ 航线规划 + 障碍物圈选")
 
