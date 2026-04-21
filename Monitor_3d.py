@@ -344,21 +344,6 @@ if st.session_state.page == "航线规划":
         st.subheader("🗂️ 障碍物持久化")
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("💾 保存障碍物"):
-                save_obstacles()
-        with col2:
-            if st.button("📂 加载障碍物"):
-                load_obstacles()
-        
-        if st.button("🗑️ 清除全部障碍物"):
-            st.session_state.obstacles = []
-            st.session_state.pending_polygon = None
-            st.success("已清除所有障碍物")
-
-        st.divider()
-        st.subheader("🗂️ 障碍物持久化")
-        col1, col2 = st.columns(2)
-        with col1:
             if st.button("💾 保存障碍物", use_container_width=True):
                 save_obstacles()
         with col2:
