@@ -419,7 +419,8 @@ if st.session_state.page == "航线规划":
     # 目的：只要地图上有图形变动，立刻更新 pending_polygon，无需等待按钮点击
     
     # 1. 优先检查 last_active_draw (捕捉最新的绘制）
-    if output and output.get("last_active_drawing"):
+    
+ if output and output.get("last_active_drawing"):
     geo = output["last_active_drawing"].get("geometry", {})
     if geo.get("type") == "Polygon":
         # 提取坐标点 [[lng, lat], ...]
