@@ -167,6 +167,8 @@ if "avoidance_strategy" not in st.session_state:
     st.session_state.avoidance_strategy = "best"
 if "pending_polygon" not in st.session_state:
     st.session_state.pending_polygon = None
+if "drawn_polygon" not in st.session_state:
+    st.session_state.drawn_polygon = []
 
 CONFIG_FILE = "obstacle_config.json"
 
@@ -247,7 +249,7 @@ def create_complete_map(lat_a, lon_a, lat_b, lon_b, obstacles, flight_height, sa
         icon=folium.Icon(color='red', icon='flag-checkered', prefix='fa')
     ).add_to(m)
 
-  # 障碍物多边形
+    # 障碍物多边形
     for obs in obstacles:
         polygon_coords = [[coord[1], coord[0]] for coord in obs["coords"]]  # [lat, lng]
         folium.Polygon(
@@ -268,7 +270,6 @@ def create_complete_map(lat_a, lon_a, lat_b, lon_b, obstacles, flight_height, sa
                 html=f'<div style="font-size: 12px; font-weight: bold; color: #ff6600;">{obs["height"]}m</div>'
             )
         ).add_to(m)
-
 
     # 飞行参数标签
     folium.Marker(
@@ -292,9 +293,6 @@ def create_complete_map(lat_a, lon_a, lat_b, lon_b, obstacles, flight_height, sa
     return m
 
 # ==================== 航线规划页面 ====================
-# 在代码最开始的地方，初始化 session_state 变量
-if 'drawn_polygon' not in st.session_state:
-    st.session_state.drawn_polygon = []  # 或者 None，取决于你的逻辑
 if st.session_state.page == "航线规划":
     st.title("🗺️ 航线规划 + 障碍物圈选")
 
@@ -351,7 +349,7 @@ if st.session_state.page == "航线规划":
                 load_obstacles()
         if st.button("🗑️ 清除全部障碍物", use_container_width=True):
             st.session_state.obstacles = []
-            st.session_state.drawn_polygon = None
+            st.session_state.drawn_polygon = []
             st.success("已清除所有障碍物")
         
         st.divider()
@@ -376,13 +374,12 @@ if st.session_state.page == "航线规划":
                         "height": new_obs_height
                     })
                     st.success(f"已添加障碍物: {new_obs_name}")
-                    st.session_state.drawn_polygon = None
+                    st.session_state.drawn_polygon = []
                     st.rerun()
                 else:
                     st.error("请输入障碍物名称")
             else:
                 st.error("请先在地图上绘制一个多边形（至少3个顶点）")
-
 
     # --- 坐标转换逻辑 ---
     if is_gcj02:
@@ -413,34 +410,26 @@ if st.session_state.page == "航线规划":
     output = st_folium(m_complete, width=900, height=600, key="map_complete")
 
     # ==========================================================
-    # 🔴 核心修改点：实时捕捉逻辑 (Real-time Capture Logic)
+    # 实时捕捉逻辑 (Real-time Capture Logic)
     # ==========================================================
-    # 这段代码必须放在 st_folium 渲染之后，按钮逻辑之前
-    # 目的：只要地图上有图形变动，立刻更新 pending_polygon，无需等待按钮点击
+    # 只要地图上有图形变动，立刻更新 drawn_polygon
+    if output and output.get("last_active_drawing"):
+        # 获取几何数据
+        geo = output["last_active_drawing"].get("geometry", {})
 
-# 1. 优先检查 last_active_drawing (捕捉最新的绘制)
-# 注意：这里不要加 else，也不要在这里写页面显示代码
-if output and output.get("last_active_drawing"):
-    # 获取几何数据
-    geo = output["last_active_drawing"].get("geometry", {})
+        # 确保绘制的是多边形
+        if geo.get("type") == "Polygon":
+            # 提取坐标点 [[lng, lat], ...]
+            coords = geo.get("coordinates", [])
 
-    # 确保绘制的是多边形
-    if geo.get("type") == "Polygon":
-        # 提取坐标点 [[lng, lat], ...]
-        coords = geo.get("coordinates", [])
-
-        if coords:
-            # 注意：Folium 返回的是 [lng, lat]，且首尾坐标相同，我们去掉最后一个闭合点
-            # coords[0] 是多边形的第一个环（外环）
-            st.session_state.drawn_polygon = coords[0][:-1]
-            st.session_state.pending_polygon = None  # 清除待处理状态
-
-            # 可选：如果你希望页面在捕捉到图形后自动刷新以显示成功状态
-            # st.rerun()
+            if coords:
+                # Folium 返回的是 [lng, lat]，且首尾坐标相同，去掉最后一个闭合点
+                st.session_state.drawn_polygon = coords[0][:-1]
 
 # ==================== 飞行监控页面 ====================
-else:
+elif st.session_state.page == "飞行监控":
     st.title("📡 飞行监控 - 心跳监测")
+    
     with st.sidebar:
         st.divider()
         st.header("🎮 心跳控制")
@@ -494,8 +483,10 @@ else:
         else:
             st.success(f"在线 | 最后心跳: {latest['时间'].strftime('%H:%M:%S')}")
     else:
-        for _ in range(4):
-            st.metric("---", "等待启动")
+        col1.metric("---", "等待启动")
+        col2.metric("---", "等待启动")
+        col3.metric("---", "等待启动")
+        col4.metric("---", "等待启动")
         st.info("点击「开始模拟」")
     
     st.divider()
@@ -509,7 +500,7 @@ else:
             st.info("暂无数据")
     with col2:
         st.subheader("📋 最近记录")
-        if not df.empty:
+        if 'df' in locals() and not df.empty:
             st.dataframe(df.tail(10))
         else:
             st.info("暂无")
