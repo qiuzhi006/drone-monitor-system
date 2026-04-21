@@ -7,6 +7,8 @@ import math
 import json
 import os
 from datetime import datetime
+# --- 新增：用于几何计算 ---
+from shapely.geometry import Point, Polygon, LineString
 
 st.set_page_config(layout="wide", page_title="无人机监测系统")
 
@@ -65,6 +67,85 @@ def gcj02_to_wgs84(lng, lat):
     dlat = (dlat * 180.0) / ((a * (1 - ee)) / (magic * sqrtmagic) * pi)
     dlng = (dlng * 180.0) / (a / sqrtmagic * math.cos(radlat) * pi)
     return lng - dlng, lat - dlat
+    # --- 新增：避障计算核心逻辑 ---
+def calculate_avoidance_paths(start, end, obstacles, flight_altitude, safety_radius_m):
+    """
+    计算三种航线方案
+    start/end: (lat, lon)
+    obstacles: st.session_state.obstacles 格式
+    """
+    # 默认方案就是直线
+    paths = {
+        "optimal": [start, end], # 最佳航线（直线）
+        "left": [],              # 向左绕行
+        "right": []              # 向右绕行
+    }
+    
+    # 1. 高度判断逻辑 (作业核心要求)
+    # 如果飞行高度大于所有障碍物高度 + 安全半径，则直接飞直线，无需绕行
+    can_fly_over = True
+    for obs in obstacles:
+        if flight_altitude <= obs['height'] + safety_radius_m:
+            can_fly_over = False
+            break
+    if can_fly_over:
+        return {"status": "safe", "paths": paths}
+
+    # 2. 平面避障计算 (如果高度不够)
+    main_line = LineString([start, end])
+    has_conflict = False
+
+    for obs in obstacles:
+        # 获取障碍物坐标点 (转换为 shapely 格式)
+        # 注意：folium 的坐标是 [lat, lng]，shapely 也是 (x,y) 对应 (lng,lat)，这里为了简单直接用平面距离
+        # 将障碍物坐标转换为 [(lng, lat)] 列表
+        obs_coords = [(coord[0], coord[1]) for coord in obs['coords']]
+        
+        # 如果障碍物点少于3个，无法构成多边形
+        if len(obs_coords) < 3:
+            continue
+            
+        obs_polygon = Polygon(obs_coords)
+        
+        # 检查航线是否穿过障碍物 (增加安全半径缓冲区)
+        # 简单换算：1度纬度约等于 111000 米
+        buffer_distance = safety_radius_m / 111000.0
+        if main_line.intersects(obs_polygon.buffer(buffer_distance)):
+            has_conflict = True
+            
+            # --- 计算绕行点 (简化版几何算法) ---
+            # 计算航线向量
+            dx = end[0] - start[0] # 纬度差
+            dy = end[1] - start[1] # 经度差
+            length = (dx**2 + dy**2)**0.5
+            if length == 0:
+                continue
+                
+            # 单位法向量 (垂直于航线)
+            nx = -dy / length
+            ny = dx / length
+            
+            # 偏移距离 (基于安全半径)
+            offset = (safety_radius_m + 50) / 111000.0 # 加50米冗余
+            
+            # 左绕行点 (法向量正方向)
+            mid_lat = (start[0] + end[0]) / 2
+            mid_lon = (start[1] + end[1]) / 2
+            left_wp_lat = mid_lat + ny * offset
+            left_wp_long = mid_lon + nx * offset
+            left_wp = (left_wp_lat, left_wp_long)
+            
+            # 右绕行点 (法向量负方向)
+            right_wp_lat = mid_lat - ny * offset
+            right_wp_long = mid_lon - nx * offset
+            right_wp = (right_wp_lat, right_wp_long)
+            
+            # 构建绕行路径
+            paths["left"] = [start, left_wp, end]
+            paths["right"] = [start, right_wp, end]
+
+    status = "unsafe" if has_conflict else "safe"
+    return {"status": status, "paths": paths}
 
 # ==================== 初始化 Session State ====================
 if "heartbeats" not in st.session_state:
