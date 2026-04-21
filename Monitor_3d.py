@@ -60,7 +60,7 @@ def gcj02_to_wgs84(lng, lat):
     dlng = (dlng * 180.0) / (a / sqrtmagic * math.cos(radlat) * pi)
     return lng - dlng, lat - dlat
 
-# ==================== 几何辅助函数 ====================
+# ==================== 几何辅助函数（修正经纬度偏移）====================
 def point_to_segment_distance(px, py, x1, y1, x2, y2):
     dx = x2 - x1
     dy = y2 - y1
@@ -81,26 +81,43 @@ def get_closest_point_on_segment(px, py, x1, y1, x2, y2):
     t = max(0, min(1, t))
     return x1 + t * dx, y1 + t * dy
 
-def perpendicular_point(px, py, x1, y1, x2, y2, offset, direction='left'):
+def perpendicular_point(px, py, x1, y1, x2, y2, offset_meters, direction='left'):
+    """
+    计算从点 (px, py) 沿航线法线方向偏移 offset_meters 米后的点
+    偏移量正确转换为经纬度增量
+    """
     dx = x2 - x1
     dy = y2 - y1
     length = math.hypot(dx, dy)
     if length == 0:
-        return px + offset, py + offset
+        return px + offset_meters, py + offset_meters
+
+    # 单位方向向量
     ux = dx / length
     uy = dy / length
+
+    # 法线方向（左手法则：(-uy, ux) 为左侧）
     perp_x = -uy
     perp_y = ux
     if direction == 'right':
         perp_x = uy
         perp_y = -ux
-    return px + perp_x * offset, py + perp_y * offset
+
+    # 将偏移量（米）转换为经纬度偏移
+    # 纬度方向：1度 ≈ 111320 米
+    # 经度方向：1度 ≈ 111320 * cos(lat_rad) 米，这里取中心纬度
+    center_lat = py  # 使用当前点的纬度
+    lat_rad = math.radians(center_lat)
+    meters_per_deg_lat = 111320.0
+    meters_per_deg_lng = 111320.0 * math.cos(lat_rad)
+
+    # 偏移向量在经纬度坐标系下的分量
+    delta_lng = offset_meters * perp_x / meters_per_deg_lng
+    delta_lat = offset_meters * perp_y / meters_per_deg_lat
+
+    return px + delta_lng, py + delta_lat
 
 def calculate_avoidance_waypoints(start, end, obstacles, flight_height, safe_radius, strategy, bypass_offset):
-    """
-    计算避障航点
-    bypass_offset: 用户设定的水平绕行偏移量（米），用于控制绕行距离（只绕几米）
-    """
     threatening = []
     for obs in obstacles:
         if obs['height'] >= flight_height:
@@ -120,21 +137,19 @@ def calculate_avoidance_waypoints(start, end, obstacles, flight_height, safe_rad
 
     waypoints = [start]
     current_start = start
-    # 按距离排序障碍物
     threatening.sort(key=lambda x: point_to_segment_distance(x['center'][0], x['center'][1], start[0], start[1], end[0], end[1]))
 
     for obs in threatening:
         center = obs['center']
         radius = obs['radius']
         closest = get_closest_point_on_segment(center[0], center[1], current_start[0], current_start[1], end[0], end[1])
-        # 关键修改：偏移距离使用用户设定的绕行偏移量（但不能小于安全半径）
         offset_dist = max(bypass_offset, safe_radius)
 
         if strategy == 'left':
             direction = 'left'
         elif strategy == 'right':
             direction = 'right'
-        else:  # best
+        else:
             left_pt = perpendicular_point(closest[0], closest[1], current_start[0], current_start[1], end[0], end[1], offset_dist, 'left')
             right_pt = perpendicular_point(closest[0], closest[1], current_start[0], current_start[1], end[0], end[1], offset_dist, 'right')
             dist_left = math.hypot(left_pt[0]-end[0], left_pt[1]-end[1])
@@ -162,7 +177,7 @@ if "flight_height" not in st.session_state:
 if "safe_radius" not in st.session_state:
     st.session_state.safe_radius = 5.0
 if "bypass_offset" not in st.session_state:
-    st.session_state.bypass_offset = 5.0        # 新增：绕行偏移量（米）
+    st.session_state.bypass_offset = 5.0
 if "coord_system" not in st.session_state:
     st.session_state.coord_system = "GCJ-02 (高德/腾讯)"
 if "page" not in st.session_state:
@@ -203,7 +218,7 @@ with st.sidebar:
     page = st.radio("功能页面", ["飞行监控", "航线规划"])
     st.session_state.page = page
 
-# ==================== 创建地图函数（含绘图控件） ====================
+# ==================== 创建地图函数 ====================
 def create_complete_map(lat_a, lon_a, lat_b, lon_b, obstacles, flight_height, safe_radius, waypoints):
     center_lat = (lat_a + lat_b) / 2
     center_lon = (lon_a + lon_b) / 2
@@ -214,7 +229,6 @@ def create_complete_map(lat_a, lon_a, lat_b, lon_b, obstacles, flight_height, sa
         attr='高德卫星地图'
     )
 
-    # 原始航线（灰色虚线）
     folium.PolyLine(
         locations=[[lat_a, lon_a], [lat_b, lon_b]],
         color='gray',
@@ -224,7 +238,6 @@ def create_complete_map(lat_a, lon_a, lat_b, lon_b, obstacles, flight_height, sa
         tooltip='原始航线'
     ).add_to(m)
 
-    # 规划航线（红色实线）
     folium.PolyLine(
         locations=[(p[1], p[0]) for p in waypoints],
         color='red',
@@ -233,7 +246,6 @@ def create_complete_map(lat_a, lon_a, lat_b, lon_b, obstacles, flight_height, sa
         tooltip='规划航线'
     ).add_to(m)
 
-    # 航点标记
     for i, (lng, lat) in enumerate(waypoints):
         folium.CircleMarker(
             location=[lat, lng],
@@ -243,7 +255,6 @@ def create_complete_map(lat_a, lon_a, lat_b, lon_b, obstacles, flight_height, sa
             popup=f'航点{i}'
         ).add_to(m)
 
-    # 起点和终点
     folium.Marker(
         location=[lat_a, lon_a],
         popup='起点A',
@@ -255,9 +266,8 @@ def create_complete_map(lat_a, lon_a, lat_b, lon_b, obstacles, flight_height, sa
         icon=folium.Icon(color='red', icon='flag-checkered', prefix='fa')
     ).add_to(m)
 
-    # 障碍物多边形
     for obs in obstacles:
-        polygon_coords = [[coord[1], coord[0]] for coord in obs["coords"]]  # [lat, lng]
+        polygon_coords = [[coord[1], coord[0]] for coord in obs["coords"]]
         folium.Polygon(
             locations=polygon_coords,
             color='orange',
@@ -267,7 +277,6 @@ def create_complete_map(lat_a, lon_a, lat_b, lon_b, obstacles, flight_height, sa
             weight=2,
             tooltip=f"{obs['name']} (高{obs['height']}m)"
         ).add_to(m)
-        # 高度标签
         center = [sum(c[1] for c in obs["coords"])/len(obs["coords"]),
                   sum(c[0] for c in obs["coords"])/len(obs["coords"])]
         folium.Marker(
@@ -277,13 +286,11 @@ def create_complete_map(lat_a, lon_a, lat_b, lon_b, obstacles, flight_height, sa
             )
         ).add_to(m)
 
-    # 飞行参数标签
     folium.Marker(
         location=[center_lat, center_lon],
         icon=folium.DivIcon(html=f'<div style="background:white; padding:2px 6px; border-radius:15px; border:1px solid red;">✈️ 高度:{flight_height}m | 半径:{safe_radius}m</div>')
     ).add_to(m)
 
-    # 绘图控件（只允许绘制多边形）
     draw = folium.plugins.Draw(
         draw_options={
             'polyline': False,
@@ -328,8 +335,6 @@ if st.session_state.page == "航线规划":
         st.session_state.flight_height = flight_height
         safe_radius = st.number_input("安全半径 (m)", min_value=1.0, max_value=50.0, value=st.session_state.safe_radius, step=1.0)
         st.session_state.safe_radius = safe_radius
-        
-        # 新增：绕行偏移量滑块
         bypass_offset = st.slider("绕行偏移量 (米) - 仅水平绕行几米", min_value=2.0, max_value=20.0, value=st.session_state.bypass_offset, step=1.0)
         st.session_state.bypass_offset = bypass_offset
 
@@ -366,7 +371,6 @@ if st.session_state.page == "航线规划":
         st.subheader("➕ 添加障碍物（多边形圈选）")
         st.markdown("1️⃣ 在地图上绘制多边形\n2️⃣ **点击 Save 按钮**\n3️⃣ 填写信息并添加")
         
-        # 显示当前捕获的多边形状态
         if st.session_state.drawn_polygon:
             st.success(f"✅ 已捕获多边形，顶点数: {len(st.session_state.drawn_polygon)}")
         else:
@@ -391,7 +395,7 @@ if st.session_state.page == "航线规划":
             else:
                 st.error("请先在地图上绘制一个多边形（至少3个顶点）")
 
-    # --- 坐标转换逻辑 ---
+    # 坐标转换
     if is_gcj02:
         lat_a_display, lon_a_display = lat_a_input, lon_a_input
         lat_b_display, lon_b_display = lat_b_input, lon_b_input
@@ -404,21 +408,18 @@ if st.session_state.page == "航线规划":
     st.session_state.coords_a = {"lat": lat_a_display, "lon": lon_a_display}
     st.session_state.coords_b = {"lat": lat_b_display, "lon": lon_b_display}
 
-    # 计算航线点（传入 bypass_offset）
     start = (lon_a_display, lat_a_display)
     end = (lon_b_display, lat_b_display)
     waypoints = calculate_avoidance_waypoints(
         start, end, st.session_state.obstacles, flight_height, safe_radius, strategy, bypass_offset
     )
 
-    # --- 核心地图渲染 ---
     m_complete = create_complete_map(
         lat_a_display, lon_a_display, lat_b_display, lon_b_display,
         st.session_state.obstacles, flight_height, safe_radius, waypoints
     )
     output = st_folium(m_complete, width=900, height=600, key="map_complete")
 
-    # 实时捕捉多边形
     if output and output.get("last_active_drawing"):
         geo = output["last_active_drawing"].get("geometry", {})
         if geo.get("type") == "Polygon":
