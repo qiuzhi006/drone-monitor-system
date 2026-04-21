@@ -352,15 +352,90 @@ if st.session_state.page == "航线规划":
     
     st.session_state.coords_a = {"lat": lat_a_display, "lon": lon_a_display}
     st.session_state.coords_b = {"lat": lat_b_display, "lon": lon_b_display}
+# 创建完整地图（包含绘图控件、航线、障碍物）
+    def create_complete_map(lat_a, lon_a, lat_b, lon_b, obstacles, flight_height, safe_radius, waypoints):
+        center_lat = (lat_a + lat_b) / 2
+        center_lon = (lon_a + lon_b) / 2
+        m = folium.Map(
+            location=[center_lat, center_lon],
+            zoom_start=17,
+            tiles='https://webst01.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}',
+            attr='高德卫星地图'
+        )
+        # 原始航线（灰色虚线）
+        folium.PolyLine(
+            locations=[[lat_a, lon_a], [lat_b, lon_b]],
+            color='gray', weight=3, opacity=0.5, dash_array='5,5',
+            tooltip='原始航线'
+        ).add_to(m)
+        # 规划航线（红色实线）
+        folium.PolyLine(
+            locations=[(p[1], p[0]) for p in waypoints],
+            color='red', weight=5, opacity=0.8,
+            tooltip='规划航线'
+        ).add_to(m)
+        # 航点标记
+        for i, (lng, lat) in enumerate(waypoints):
+            folium.CircleMarker(
+                location=[lat, lng], radius=4,
+                color='blue' if i in (0, len(waypoints)-1) else 'orange',
+                fill=True, popup=f'航点{i}'
+            ).add_to(m)
+        # 起点和终点
+        folium.Marker(
+            location=[lat_a, lon_a], popup='起点A',
+            icon=folium.Icon(color='green', icon='play', prefix='fa')
+        ).add_to(m)
+        folium.Marker(
+            location=[lat_b, lon_b], popup='终点B',
+            icon=folium.Icon(color='red', icon='flag-checkered', prefix='fa')
+        ).add_to(m)
+        # 障碍物多边形
+        for obs in obstacles:
+            polygon_coords = [[c[1], c[0]] for c in obs["coords"]]
+            color = 'orange' if obs['height'] < flight_height else 'darkred'
+            folium.Polygon(
+                locations=polygon_coords, color=color, fill=True, fill_color=color,
+                fill_opacity=0.4, weight=2, tooltip=f"{obs['name']} (高{obs['height']}m)"
+            ).add_to(m)
+            clat = sum(c[1] for c in obs["coords"]) / len(obs["coords"])
+            clng = sum(c[0] for c in obs["coords"]) / len(obs["coords"])
+            folium.Marker(
+                location=[clat, clng],
+                icon=folium.DivIcon(html=f'<div style="font-size:12px; font-weight:bold; color:{color};">{obs["height"]}m</div>')
+            ).add_to(m)
+        # 飞行参数标签
+        folium.Marker(
+            location=[center_lat, center_lon],
+            icon=folium.DivIcon(html=f'<div style="background:white; padding:2px 6px; border-radius:15px; border:1px solid red;">✈️ 高度:{flight_height}m | 半径:{safe_radius}m</div>')
+        ).add_to(m)
+        # 绘图控件（多边形绘制）
+        draw = folium.plugins.Draw(
+            draw_options={
+                'polyline': False, 'rectangle': False, 'circle': False,
+                'marker': False, 'circlemarker': False, 'polygon': True
+            },
+            edit_options={'edit': True}
+        )
+        draw.add_to(m)
+        return m
+
+    # 计算当前航线点
+    start = (lon_a_display, lat_a_display)
+    end = (lon_b_display, lat_b_display)
+    waypoints = calculate_avoidance_waypoints(
+        start, end, st.session_state.obstacles,
+        flight_height, safe_radius, strategy
+    )
     
-    # 创建地图
-    m = create_map(lat_a_display, lon_a_display, lat_b_display, lon_b_display,
-                   st.session_state.obstacles, flight_height, safe_radius)
+    # 创建并显示单个地图
+    m_complete = create_complete_map(
+        lat_a_display, lon_a_display, lat_b_display, lon_b_display,
+        st.session_state.obstacles, flight_height, safe_radius, waypoints
+    )
+    output = st_folium(m_complete, width=900, height=600, key="map_complete")
     
-    st.subheader("🗺️ 高德卫星地图 - 绘制多边形圈选障碍物")
-    output = st_folium(m, width=900, height=600, key="map_draw")
-    
-    # 解析绘制的多边形
+    # 处理绘制的多边形
     if output and "last_active_draw" in output and output["last_active_draw"]:
         draw_data = output["last_active_draw"]
         if "geometry" in draw_data and draw_data["geometry"]["type"] == "Polygon":
