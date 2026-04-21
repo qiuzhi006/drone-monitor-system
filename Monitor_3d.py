@@ -418,17 +418,25 @@ if st.session_state.page == "航线规划":
     # 这段代码必须放在 st_folium 渲染之后，按钮逻辑之前
     # 目的：只要地图上有图形变动，立刻更新 pending_polygon，无需等待按钮点击
 
-    # 1. 优先检查 last_active_draw (捕捉最新的绘制)
+# 1. 优先检查 last_active_drawing (捕捉最新的绘制)
+# 注意：这里不要加 else，也不要在这里写页面显示代码
 if output and output.get("last_active_drawing"):
+    # 获取几何数据
     geo = output["last_active_drawing"].get("geometry", {})
+
+    # 确保绘制的是多边形
     if geo.get("type") == "Polygon":
         # 提取坐标点 [[lng, lat], ...]
         coords = geo.get("coordinates", [])
+
         if coords:
             # 注意：Folium 返回的是 [lng, lat]，且首尾坐标相同，我们去掉最后一个闭合点
-            st.session_state.drawn_polygon = coords[0][:-1] 
-            st.session_state.pending_polygon = None # 清除待处理状态
-            # 如果你想让页面自动刷新显示成功，可以在这里加 st.rerun()，或者让用户点按钮
+            # coords[0] 是多边形的第一个环（外环）
+            st.session_state.drawn_polygon = coords[0][:-1]
+            st.session_state.pending_polygon = None  # 清除待处理状态
+
+            # 可选：如果你希望页面在捕捉到图形后自动刷新以显示成功状态
+            # st.rerun()
 
 # ==================== 飞行监控页面 ====================
 else:
