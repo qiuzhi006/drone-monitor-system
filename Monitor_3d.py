@@ -7,7 +7,6 @@ import math
 import json
 import os
 from datetime import datetime
-from typing import List, Tuple
 
 st.set_page_config(layout="wide", page_title="无人机监测系统")
 
@@ -97,7 +96,11 @@ def perpendicular_point(px, py, x1, y1, x2, y2, offset, direction='left'):
         perp_y = -ux
     return px + perp_x * offset, py + perp_y * offset
 
-def calculate_avoidance_waypoints(start, end, obstacles, flight_height, safe_radius, strategy):
+def calculate_avoidance_waypoints(start, end, obstacles, flight_height, safe_radius, strategy, bypass_offset):
+    """
+    计算避障航点
+    bypass_offset: 用户设定的水平绕行偏移量（米），用于控制绕行距离（只绕几米）
+    """
     threatening = []
     for obs in obstacles:
         if obs['height'] >= flight_height:
@@ -124,13 +127,14 @@ def calculate_avoidance_waypoints(start, end, obstacles, flight_height, safe_rad
         center = obs['center']
         radius = obs['radius']
         closest = get_closest_point_on_segment(center[0], center[1], current_start[0], current_start[1], end[0], end[1])
-        offset_dist = safe_radius + radius
+        # 关键修改：偏移距离使用用户设定的绕行偏移量（但不能小于安全半径）
+        offset_dist = max(bypass_offset, safe_radius)
 
         if strategy == 'left':
             direction = 'left'
         elif strategy == 'right':
             direction = 'right'
-        else: # best
+        else:  # best
             left_pt = perpendicular_point(closest[0], closest[1], current_start[0], current_start[1], end[0], end[1], offset_dist, 'left')
             right_pt = perpendicular_point(closest[0], closest[1], current_start[0], current_start[1], end[0], end[1], offset_dist, 'right')
             dist_left = math.hypot(left_pt[0]-end[0], left_pt[1]-end[1])
@@ -157,6 +161,8 @@ if "flight_height" not in st.session_state:
     st.session_state.flight_height = 50
 if "safe_radius" not in st.session_state:
     st.session_state.safe_radius = 5.0
+if "bypass_offset" not in st.session_state:
+    st.session_state.bypass_offset = 5.0        # 新增：绕行偏移量（米）
 if "coord_system" not in st.session_state:
     st.session_state.coord_system = "GCJ-02 (高德/腾讯)"
 if "page" not in st.session_state:
@@ -322,6 +328,10 @@ if st.session_state.page == "航线规划":
         st.session_state.flight_height = flight_height
         safe_radius = st.number_input("安全半径 (m)", min_value=1.0, max_value=50.0, value=st.session_state.safe_radius, step=1.0)
         st.session_state.safe_radius = safe_radius
+        
+        # 新增：绕行偏移量滑块
+        bypass_offset = st.slider("绕行偏移量 (米) - 仅水平绕行几米", min_value=2.0, max_value=20.0, value=st.session_state.bypass_offset, step=1.0)
+        st.session_state.bypass_offset = bypass_offset
 
         st.divider()
         st.header("🔄 避障策略")
@@ -386,7 +396,6 @@ if st.session_state.page == "航线规划":
         lat_a_display, lon_a_display = lat_a_input, lon_a_input
         lat_b_display, lon_b_display = lat_b_input, lon_b_input
     else:
-        # 注意：wgs84_to_gcj02 函数参数顺序是 (lng, lat)
         lon_a_gcj, lat_a_gcj = wgs84_to_gcj02(lon_a_input, lat_a_input)
         lon_b_gcj, lat_b_gcj = wgs84_to_gcj02(lon_b_input, lat_b_input)
         lat_a_display, lon_a_display = lat_a_gcj, lon_a_gcj
@@ -395,11 +404,11 @@ if st.session_state.page == "航线规划":
     st.session_state.coords_a = {"lat": lat_a_display, "lon": lon_a_display}
     st.session_state.coords_b = {"lat": lat_b_display, "lon": lon_b_display}
 
-    # 计算航线点
+    # 计算航线点（传入 bypass_offset）
     start = (lon_a_display, lat_a_display)
     end = (lon_b_display, lat_b_display)
     waypoints = calculate_avoidance_waypoints(
-        start, end, st.session_state.obstacles, flight_height, safe_radius, strategy
+        start, end, st.session_state.obstacles, flight_height, safe_radius, strategy, bypass_offset
     )
 
     # --- 核心地图渲染 ---
@@ -409,21 +418,12 @@ if st.session_state.page == "航线规划":
     )
     output = st_folium(m_complete, width=900, height=600, key="map_complete")
 
-    # ==========================================================
-    # 实时捕捉逻辑 (Real-time Capture Logic)
-    # ==========================================================
-    # 只要地图上有图形变动，立刻更新 drawn_polygon
+    # 实时捕捉多边形
     if output and output.get("last_active_drawing"):
-        # 获取几何数据
         geo = output["last_active_drawing"].get("geometry", {})
-
-        # 确保绘制的是多边形
         if geo.get("type") == "Polygon":
-            # 提取坐标点 [[lng, lat], ...]
             coords = geo.get("coordinates", [])
-
             if coords:
-                # Folium 返回的是 [lng, lat]，且首尾坐标相同，去掉最后一个闭合点
                 st.session_state.drawn_polygon = coords[0][:-1]
 
 # ==================== 飞行监控页面 ====================
