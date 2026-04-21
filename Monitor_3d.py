@@ -413,8 +413,31 @@ if st.session_state.page == "航线规划":
         waypoints 
     )
     
-    # 渲染地图
-    output = st_folium(m_complete, width=900, height=600, key="main_map")
+      output = st_folium(m_complete, width=900, height=600, key="map_complete")
+    
+    # 增强的多边形捕获
+    captured = False
+    if output and "last_active_draw" in output and output["last_active_draw"]:
+        draw_data = output["last_active_draw"]
+        if "geometry" in draw_data and draw_data["geometry"]["type"] == "Polygon":
+            coords_raw = draw_data["geometry"]["coordinates"][0]
+            polygon_coords = [[c[0], c[1]] for c in coords_raw]
+            st.session_state.pending_polygon = polygon_coords
+            st.success(f"✅ 已捕获多边形（{len(polygon_coords)}个顶点）")
+            captured = True
+    if not captured and output and "all_drawings" in output and output["all_drawings"]:
+        # 尝试从 all_drawings 获取最新绘制的多边形
+        for draw in reversed(output["all_drawings"]):
+            if draw.get("geometry", {}).get("type") == "Polygon":
+                coords_raw = draw["geometry"]["coordinates"][0]
+                polygon_coords = [[c[0], c[1]] for c in coords_raw]
+                st.session_state.pending_polygon = polygon_coords
+                st.success(f"✅ 已捕获多边形（从 all_drawings，{len(polygon_coords)}个顶点）")
+                captured = True
+                break
+    if not captured:
+        # 可选：显示未捕获提示，但不覆盖已有的 pending_polygon
+        pass
 
     # === 紧接在渲染之后：处理绘制的多边形 ===
 
