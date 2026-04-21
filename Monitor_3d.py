@@ -352,7 +352,7 @@ if st.session_state.page == "航线规划":
             st.session_state.pending_polygon = None
             st.success("已清除所有障碍物")
 
-      st.divider()
+        st.divider()
         st.subheader("🗂️ 障碍物持久化")
         col1, col2 = st.columns(2)
         with col1:
