@@ -19,23 +19,17 @@ ee = 0.00669342162296594323
 def _transform_lat(lng, lat):
     ret = -100.0 + 2.0 * lng + 3.0 * lat + 0.2 * lat * lat + \
           0.1 * lng * lat + 0.2 * math.sqrt(abs(lng))
-    ret += (20.0 * math.sin(6.0 * lng * pi) + 20.0 *
-            math.sin(2.0 * lng * pi)) * 2.0 / 3.0
-    ret += (20.0 * math.sin(lat * pi) + 40.0 *
-            math.sin(lat / 3.0 * pi)) * 2.0 / 3.0
-    ret += (160.0 * math.sin(lat / 12.0 * pi) + 320 *
-            math.sin(lat * pi / 30.0)) * 2.0 / 3.0
+    ret += (20.0 * math.sin(6.0 * lng * pi) + 20.0 * math.sin(2.0 * lng * pi)) * 2.0 / 3.0
+    ret += (20.0 * math.sin(lat * pi) + 40.0 * math.sin(lat / 3.0 * pi)) * 2.0 / 3.0
+    ret += (160.0 * math.sin(lat / 12.0 * pi) + 320 * math.sin(lat * pi / 30.0)) * 2.0 / 3.0
     return ret
 
 def _transform_lng(lng, lat):
     ret = 300.0 + lng + 2.0 * lat + 0.1 * lng * lng + \
           0.1 * lng * lat + 0.1 * math.sqrt(abs(lng))
-    ret += (20.0 * math.sin(6.0 * lng * pi) + 20.0 *
-            math.sin(2.0 * lng * pi)) * 2.0 / 3.0
-    ret += (20.0 * math.sin(lng * pi) + 40.0 *
-            math.sin(lng / 3.0 * pi)) * 2.0 / 3.0
-    ret += (150.0 * math.sin(lng / 12.0 * pi) + 300.0 *
-            math.sin(lng / 30.0 * pi)) * 2.0 / 3.0
+    ret += (20.0 * math.sin(6.0 * lng * pi) + 20.0 * math.sin(2.0 * lng * pi)) * 2.0 / 3.0
+    ret += (20.0 * math.sin(lng * pi) + 40.0 * math.sin(lng / 3.0 * pi)) * 2.0 / 3.0
+    ret += (150.0 * math.sin(lng / 12.0 * pi) + 300.0 * math.sin(lng / 30.0 * pi)) * 2.0 / 3.0
     return ret
 
 def out_of_china(lng, lat):
@@ -117,30 +111,36 @@ def calculate_avoidance_waypoints(start, end, obstacles, flight_height, safe_rad
                     'radius': max_r,
                     'height': obs['height']
                 })
+    
     if strategy == 'direct' or not threatening:
         return [start, end]
     
     waypoints = [start]
     current_start = start
+    # 按距离排序障碍物
     threatening.sort(key=lambda x: point_to_segment_distance(x['center'][0], x['center'][1], start[0], start[1], end[0], end[1]))
+    
     for obs in threatening:
         center = obs['center']
         radius = obs['radius']
         closest = get_closest_point_on_segment(center[0], center[1], current_start[0], current_start[1], end[0], end[1])
         offset_dist = safe_radius + radius
+        
         if strategy == 'left':
             direction = 'left'
         elif strategy == 'right':
             direction = 'right'
-        else:
+        else: # best
             left_pt = perpendicular_point(closest[0], closest[1], current_start[0], current_start[1], end[0], end[1], offset_dist, 'left')
             right_pt = perpendicular_point(closest[0], closest[1], current_start[0], current_start[1], end[0], end[1], offset_dist, 'right')
             dist_left = math.hypot(left_pt[0]-end[0], left_pt[1]-end[1])
             dist_right = math.hypot(right_pt[0]-end[0], right_pt[1]-end[1])
             direction = 'left' if dist_left < dist_right else 'right'
+            
         waypoint = perpendicular_point(closest[0], closest[1], current_start[0], current_start[1], end[0], end[1], offset_dist, direction)
         waypoints.append(waypoint)
         current_start = waypoint
+        
     waypoints.append(end)
     return waypoints
 
@@ -162,11 +162,11 @@ if "coord_system" not in st.session_state:
 if "page" not in st.session_state:
     st.session_state.page = "飞行监控"
 if "obstacles" not in st.session_state:
-    st.session_state.obstacles = []   # 无默认障碍物，全部由用户圈选
+    st.session_state.obstacles = []
 if "avoidance_strategy" not in st.session_state:
     st.session_state.avoidance_strategy = "best"
 if "pending_polygon" not in st.session_state:
-    st.session_state.pending_polygon = None   # 暂存刚绘制的多边形
+    st.session_state.pending_polygon = None
 
 CONFIG_FILE = "obstacle_config.json"
 
@@ -175,9 +175,9 @@ def load_obstacles():
         try:
             with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-                if "obstacles" in data:
-                    st.session_state.obstacles = data["obstacles"]
-                    st.success(f"已加载 {len(data['obstacles'])} 个障碍物")
+            if "obstacles" in data:
+                st.session_state.obstacles = data["obstacles"]
+                st.success(f"已加载 {len(data['obstacles'])} 个障碍物")
         except Exception as e:
             st.error(f"加载失败: {e}")
 
@@ -196,10 +196,9 @@ with st.sidebar:
     st.session_state.page = page
 
 # ==================== 创建地图函数（含绘图控件） ====================
-def create_map(lat_a, lon_a, lat_b, lon_b, obstacles, flight_height, safe_radius):
+def create_complete_map(lat_a, lon_a, lat_b, lon_b, obstacles, flight_height, safe_radius, waypoints):
     center_lat = (lat_a + lat_b) / 2
     center_lon = (lon_a + lon_b) / 2
-    
     m = folium.Map(
         location=[center_lat, center_lon],
         zoom_start=17,
@@ -210,8 +209,42 @@ def create_map(lat_a, lon_a, lat_b, lon_b, obstacles, flight_height, safe_radius
     # 原始航线（灰色虚线）
     folium.PolyLine(
         locations=[[lat_a, lon_a], [lat_b, lon_b]],
-        color='gray', weight=3, opacity=0.5, dash_array='5,5',
+        color='gray',
+        weight=3,
+        opacity=0.5,
+        dash_array='5,5',
         tooltip='原始航线'
+    ).add_to(m)
+    
+    # 规划航线（红色实线）
+    folium.PolyLine(
+        locations=[(p[1], p[0]) for p in waypoints],
+        color='red',
+        weight=5,
+        opacity=0.8,
+        tooltip='规划航线'
+    ).add_to(m)
+    
+    # 航点标记
+    for i, (lng, lat) in enumerate(waypoints):
+        folium.CircleMarker(
+            location=[lat, lng],
+            radius=4,
+            color='blue' if i in (0, len(waypoints)-1) else 'orange',
+            fill=True,
+            popup=f'航点{i}'
+        ).add_to(m)
+    
+    # 起点和终点
+    folium.Marker(
+        location=[lat_a, lon_a],
+        popup='起点A',
+        icon=folium.Icon(color='green', icon='play', prefix='fa')
+    ).add_to(m)
+    folium.Marker(
+        location=[lat_b, lon_b],
+        popup='终点B',
+        icon=folium.Icon(color='red', icon='flag-checkered', prefix='fa')
     ).add_to(m)
     
     # 障碍物多边形
@@ -220,17 +253,27 @@ def create_map(lat_a, lon_a, lat_b, lon_b, obstacles, flight_height, safe_radius
         color = 'orange' if obs['height'] < flight_height else 'darkred'
         folium.Polygon(
             locations=polygon_coords,
-            color=color, fill=True, fill_color=color, fill_opacity=0.4,
-            weight=2, tooltip=f"{obs['name']} (高{obs['height']}m)"
+            color=color,
+            fill=True,
+            fill_color=color,
+            fill_opacity=0.4,
+            weight=2,
+            tooltip=f"{obs['name']} (高{obs['height']}m)"
         ).add_to(m)
-        center_lat_obs = sum(c[1] for c in obs["coords"]) / len(obs["coords"])
-        center_lon_obs = sum(c[0] for c in obs["coords"]) / len(obs["coords"])
+        clat = sum(c[1] for c in obs["coords"]) / len(obs["coords"])
+        clng = sum(c[0] for c in obs["coords"]) / len(obs["coords"])
         folium.Marker(
-            location=[center_lat_obs, center_lon_obs],
+            location=[clat, clng],
             icon=folium.DivIcon(html=f'<div style="font-size:12px; font-weight:bold; color:{color};">{obs["height"]}m</div>')
         ).add_to(m)
     
-    # 添加绘图控件（只允许绘制多边形）
+    # 飞行参数标签
+    folium.Marker(
+        location=[center_lat, center_lon],
+        icon=folium.DivIcon(html=f'<div style="background:white; padding:2px 6px; border-radius:15px; border:1px solid red;">✈️ 高度:{flight_height}m | 半径:{safe_radius}m</div>')
+    ).add_to(m)
+    
+    # 绘图控件（只允许绘制多边形）
     draw = folium.plugins.Draw(
         draw_options={
             'polyline': False,
@@ -282,11 +325,11 @@ if st.session_state.page == "航线规划":
         strategy = st.radio(
             "选择绕行方式",
             options=['direct', 'left', 'right', 'best'],
-            format_func=lambda x: {
-                'direct': '直接飞 (高度足够时)',
-                'left': '向左绕行',
-                'right': '向右绕行',
-                'best': '最佳航线'
+            format_func=lambda x: { 
+                'direct': '直接飞 (高度足够时)', 
+                'left': '向左绕行', 
+                'right': '向右绕行', 
+                'best': '最佳航线' 
             }[x],
             index=['direct', 'left', 'right', 'best'].index(st.session_state.avoidance_strategy)
         )
@@ -301,6 +344,7 @@ if st.session_state.page == "航线规划":
         with col2:
             if st.button("📂 加载障碍物"):
                 load_obstacles()
+        
         if st.button("🗑️ 清除全部障碍物"):
             st.session_state.obstacles = []
             st.session_state.pending_polygon = None
@@ -314,9 +358,10 @@ if st.session_state.page == "航线规划":
             st.success(f"✅ 已捕获多边形，顶点数: {len(st.session_state.pending_polygon)}")
         else:
             st.info("⏳ 尚未捕获多边形，请先绘制")
-        
+            
         new_obs_name = st.text_input("障碍物名称", placeholder="例如：新建筑")
         new_obs_height = st.number_input("高度 (米)", min_value=0, max_value=200, value=30)
+        
         if st.button("✅ 添加为障碍物"):
             if st.session_state.pending_polygon and len(st.session_state.pending_polygon) >= 3:
                 if new_obs_name.strip():
@@ -332,200 +377,47 @@ if st.session_state.page == "航线规划":
                     st.error("请输入障碍物名称")
             else:
                 st.error("请先在地图上绘制一个多边形（至少3个顶点）")
-        
-        with st.expander("📋 当前障碍物列表"):
-            if not st.session_state.obstacles:
-                st.write("暂无")
-            for i, obs in enumerate(st.session_state.obstacles):
-                st.write(f"{i+1}. {obs['name']} ({obs['height']}m) - {len(obs['coords'])}个顶点")
-                if st.button(f"❌ 删除 {obs['name']}", key=f"del_{i}"):
-                    st.session_state.obstacles.pop(i)
-                    st.rerun()
     
-    # 坐标转换
+    # 坐标转换逻辑
     if is_gcj02:
         lat_a_display, lon_a_display = lat_a_input, lon_a_input
         lat_b_display, lon_b_display = lat_b_input, lon_b_input
     else:
-        lon_a_display, lat_a_display = wgs84_to_gcj02(lon_a_input, lat_a_input)
-        lon_b_display, lat_b_display = wgs84_to_gcj02(lon_b_input, lat_b_input)
-    
+        # 注意：wgs84_to_gcj02 函数参数顺序是 (lng, lat)
+        lon_a_gcj, lat_a_gcj = wgs84_to_gcj02(lon_a_input, lat_a_input)
+        lon_b_gcj, lat_b_gcj = wgs84_to_gcj02(lon_b_input, lat_b_input)
+        lat_a_display, lon_a_display = lat_a_gcj, lon_a_gcj
+        lat_b_display, lon_b_display = lat_b_gcj, lon_b_gcj
+
     st.session_state.coords_a = {"lat": lat_a_display, "lon": lon_a_display}
     st.session_state.coords_b = {"lat": lat_b_display, "lon": lon_b_display}
-# 创建完整地图（包含绘图控件、航线、障碍物）
-    def create_complete_map(lat_a, lon_a, lat_b, lon_b, obstacles, flight_height, safe_radius, waypoints):
-        center_lat = (lat_a + lat_b) / 2
-        center_lon = (lon_a + lon_b) / 2
-        m = folium.Map(
-            location=[center_lat, center_lon],
-            zoom_start=17,
-            tiles='https://webst01.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}',
-            attr='高德卫星地图'
-        )
-        # 原始航线（灰色虚线）
-        folium.PolyLine(
-            locations=[[lat_a, lon_a], [lat_b, lon_b]],
-            color='gray', weight=3, opacity=0.5, dash_array='5,5',
-            tooltip='原始航线'
-        ).add_to(m)
-        # 规划航线（红色实线）
-        folium.PolyLine(
-            locations=[(p[1], p[0]) for p in waypoints],
-            color='red', weight=5, opacity=0.8,
-            tooltip='规划航线'
-        ).add_to(m)
-        # 航点标记
-        for i, (lng, lat) in enumerate(waypoints):
-            folium.CircleMarker(
-                location=[lat, lng], radius=4,
-                color='blue' if i in (0, len(waypoints)-1) else 'orange',
-                fill=True, popup=f'航点{i}'
-            ).add_to(m)
-        # 起点和终点
-        folium.Marker(
-            location=[lat_a, lon_a], popup='起点A',
-            icon=folium.Icon(color='green', icon='play', prefix='fa')
-        ).add_to(m)
-        folium.Marker(
-            location=[lat_b, lon_b], popup='终点B',
-            icon=folium.Icon(color='red', icon='flag-checkered', prefix='fa')
-        ).add_to(m)
-        # 障碍物多边形
-        for obs in obstacles:
-            polygon_coords = [[c[1], c[0]] for c in obs["coords"]]
-            color = 'orange' if obs['height'] < flight_height else 'darkred'
-            folium.Polygon(
-                locations=polygon_coords, color=color, fill=True, fill_color=color,
-                fill_opacity=0.4, weight=2, tooltip=f"{obs['name']} (高{obs['height']}m)"
-            ).add_to(m)
-            clat = sum(c[1] for c in obs["coords"]) / len(obs["coords"])
-            clng = sum(c[0] for c in obs["coords"]) / len(obs["coords"])
-            folium.Marker(
-                location=[clat, clng],
-                icon=folium.DivIcon(html=f'<div style="font-size:12px; font-weight:bold; color:{color};">{obs["height"]}m</div>')
-            ).add_to(m)
-        # 飞行参数标签
-        folium.Marker(
-            location=[center_lat, center_lon],
-            icon=folium.DivIcon(html=f'<div style="background:white; padding:2px 6px; border-radius:15px; border:1px solid red;">✈️ 高度:{flight_height}m | 半径:{safe_radius}m</div>')
-        ).add_to(m)
-        # 绘图控件（多边形绘制）
-        draw = folium.plugins.Draw(
-            draw_options={
-                'polyline': False, 'rectangle': False, 'circle': False,
-                'marker': False, 'circlemarker': False, 'polygon': True
-            },
-            edit_options={'edit': True}
-        )
-        draw.add_to(m)
-        return m
 
-    # 计算当前航线点
+    # 计算航线点
     start = (lon_a_display, lat_a_display)
     end = (lon_b_display, lat_b_display)
     waypoints = calculate_avoidance_waypoints(
-        start, end, st.session_state.obstacles,
-        flight_height, safe_radius, strategy
+        start, end, 
+        st.session_state.obstacles, 
+        flight_height, 
+        safe_radius, 
+        strategy
     )
-    
-    # 创建并显示单个地图
+
+    # === 核心修复点：只渲染一次地图，并紧接着处理捕捉逻辑 ===
     m_complete = create_complete_map(
-        lat_a_display, lon_a_display, lat_b_display, lon_b_display,
-        st.session_state.obstacles, flight_height, safe_radius, waypoints
-    )
-    output = st_folium(m_complete, width=900, height=600, key="map_complete")
-    
-    # 处理绘制的多边形
-    if output and "last_active_draw" in output and output["last_active_draw"]:
-        draw_data = output["last_active_draw"]
-        if "geometry" in draw_data and draw_data["geometry"]["type"] == "Polygon":
-            coords_original = draw_data["geometry"]["coordinates"][0]
-            polygon_coords = [[c[0], c[1]] for c in coords_original]
-            st.session_state.pending_polygon = polygon_coords
-            st.success(f"✅ 已捕获多边形（{len(polygon_coords)}个顶点），请在侧边栏命名并添加")
-    
-    # 实时计算并显示航线（根据当前障碍物和策略）
-    start = (lon_a_display, lat_a_display)
-    end = (lon_b_display, lat_b_display)
-    waypoints = calculate_avoidance_waypoints(
-        start, end, st.session_state.obstacles,
-        flight_height, safe_radius, strategy
+        lat_a_display, lon_a_display, 
+        lat_b_display, lon_b_display, 
+        st.session_state.obstacles, 
+        flight_height, 
+        safe_radius, 
+        waypoints 
     )
     
-    # 在地图上叠加规划航线（因为create_map中没有画航线，我们手动添加一条）
-    # 注意：st_folium已经渲染了m，我们无法直接修改，所以重新生成一个带航线的地图
-    # 为了避免重复代码，我们重新创建一个完整的地图（包含航线）
-    def create_full_map(lat_a, lon_a, lat_b, lon_b, obstacles, flight_height, safe_radius, waypoints):
-        m2 = folium.Map(
-            location=[(lat_a+lat_b)/2, (lon_a+lon_b)/2],
-            zoom_start=17,
-            tiles='https://webst01.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}',
-            attr='高德卫星地图'
-        )
-        # 原始航线
-        folium.PolyLine([[lat_a, lon_a], [lat_b, lon_b]], color='gray', weight=3, opacity=0.5, dash_array='5,5').add_to(m2)
-        # 规划航线
-        folium.PolyLine([(p[1], p[0]) for p in waypoints], color='red', weight=5, opacity=0.8).add_to(m2)
-        # 航点标记
-        for i, (lng, lat) in enumerate(waypoints):
-            folium.CircleMarker([lat, lng], radius=4, color='blue' if i in (0, len(waypoints)-1) else 'orange', fill=True).add_to(m2)
-        # 起点终点标记
-        folium.Marker([lat_a, lon_a], popup='起点A', icon=folium.Icon(color='green')).add_to(m2)
-        folium.Marker([lat_b, lon_b], popup='终点B', icon=folium.Icon(color='red')).add_to(m2)
-        # 障碍物
-        for obs in obstacles:
-            poly = [[c[1], c[0]] for c in obs["coords"]]
-            color = 'orange' if obs['height'] < flight_height else 'darkred'
-            folium.Polygon(poly, color=color, fill=True, fill_color=color, fill_opacity=0.4, tooltip=f"{obs['name']} ({obs['height']}m)").add_to(m2)
-            clat = sum(c[1] for c in obs["coords"])/len(obs["coords"])
-            clng = sum(c[0] for c in obs["coords"])/len(obs["coords"])
-            folium.Marker([clat, clng], icon=folium.DivIcon(html=f'<div style="font-size:12px;font-weight:bold;color:{color};">{obs["height"]}m</div>')).add_to(m2)
-        # 飞行参数
-        folium.Marker([(lat_a+lat_b)/2, (lon_a+lon_b)/2], icon=folium.DivIcon(html=f'<div style="background:white;padding:2px 6px;border-radius:15px;border:1px solid red;">✈️ 高度:{flight_height}m | 半径:{safe_radius}m</div>')).add_to(m2)
-        # 绘图控件
-        folium.plugins.Draw(draw_options={'polygon': True, 'polyline': False, 'rectangle': False, 'circle': False, 'marker': False, 'circlemarker': False}, edit_options={'edit': True}).add_to(m2)
-        return m2
-    
-    m_full = create_full_map(lat_a_display, lon_a_display, lat_b_display, lon_b_display,
-                             st.session_state.obstacles, flight_height, safe_radius, waypoints)
-    output2 = st_folium(m_full, width=900, height=600, key="map_full")
-    if output2 and "last_active_draw" in output2 and output2["last_active_draw"]:
-        draw_data2 = output2["last_active_draw"]
-        if "geometry" in draw_data2 and draw_data2["geometry"]["type"] == "Polygon":
-            coords_original2 = draw_data2["geometry"]["coordinates"][0]
-            polygon_coords2 = [[c[0], c[1]] for c in coords_original2]
-            st.session_state.pending_polygon = polygon_coords2
-            st.success(f"✅ 已捕获多边形（{len(polygon_coords2)}个顶点），请在侧边栏命名并添加")
-    
-    # 显示航线报告
-    st.subheader("📋 航线规划报告")
-    if strategy == 'direct':
-        st.info("当前策略：直接飞。若飞行高度大于所有障碍物高度则无绕行；否则将按高度条件自动绕行。")
-    else:
-        st.success(f"已生成绕行航线，共 {len(waypoints)} 个航点。")
-        df_waypoints = pd.DataFrame(waypoints, columns=['经度', '纬度'])
-        st.dataframe(df_waypoints)
-    
-    # 图例
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.markdown("🟢 **绿色** = 起点A")
-    with col2:
-        st.markdown("🔴 **红色** = 终点B")
-    with col3:
-        st.markdown("🟠 **橙色多边形** = 障碍物(低于飞行高度)")
-    with col4:
-        st.markdown("🔴 **深红多边形** = 障碍物(高于飞行高度)")
-    st.caption("灰色虚线: 原始航线 | 红色实线: 规划航线 | 橙色/蓝色圆点: 航点")
-    
-    st.divider()
-    st.subheader("📐 坐标信息")
-    col1, col2 = st.columns(2)
-    with col1:
-        st.info(f"**起点A** (GCJ-02)\n- {lat_a_display:.6f}, {lon_a_display:.6f}")
-    with col2:
-        st.info(f"**终点B** (GCJ-02)\n- {lat_b_display:.6f}, {lon_b_display:.6f}")
-    st.caption(f"飞行高度: {flight_height} 米 | 安全半径: {safe_radius} 米 | 障碍物数量: {len(st.session_state.obstacles)}")
+    # 渲染地图
+    output = st_folium(m_complete, width=900, height=600, key="main_map")
+
+    # === 紧接在渲染之后：处理绘制的多边形 ===
+    if output and "
 
 # ==================== 飞行监控页面 ====================
 else:
