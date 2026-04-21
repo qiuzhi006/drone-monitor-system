@@ -417,7 +417,6 @@ if st.session_state.page == "航线规划":
     output = st_folium(m_complete, width=900, height=600, key="main_map")
 
     # === 紧接在渲染之后：处理绘制的多边形 ===
-    if output and "
 
 # ==================== 飞行监控页面 ====================
 else:
