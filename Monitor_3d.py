@@ -247,25 +247,28 @@ def create_complete_map(lat_a, lon_a, lat_b, lon_b, obstacles, flight_height, sa
         icon=folium.Icon(color='red', icon='flag-checkered', prefix='fa')
     ).add_to(m)
 
-    # 障碍物多边形
+  # 障碍物多边形
     for obs in obstacles:
-        polygon_coords = [[c[1], c[0]] for c in obs["coords"]]
-        color = 'orange' if obs['height'] < flight_height else 'darkred'
+        polygon_coords = [[coord[1], coord[0]] for coord in obs["coords"]]  # [lat, lng]
         folium.Polygon(
             locations=polygon_coords,
-            color=color,
+            color='orange',
             fill=True,
-            fill_color=color,
+            fill_color='orange',
             fill_opacity=0.4,
             weight=2,
             tooltip=f"{obs['name']} (高{obs['height']}m)"
         ).add_to(m)
-        clat = sum(c[1] for c in obs["coords"]) / len(obs["coords"])
-        clng = sum(c[0] for c in obs["coords"]) / len(obs["coords"])
+        # 高度标签
+        center = [sum(c[1] for c in obs["coords"])/len(obs["coords"]),
+                  sum(c[0] for c in obs["coords"])/len(obs["coords"])]
         folium.Marker(
-            location=[clat, clng],
-            icon=folium.DivIcon(html=f'<div style="font-size:12px; font-weight:bold; color:{color};">{obs["height"]}m</div>')
+            location=[center[0], center[1]],
+            icon=folium.DivIcon(
+                html=f'<div style="font-size: 12px; font-weight: bold; color: #ff6600;">{obs["height"]}m</div>'
+            )
         ).add_to(m)
+
 
     # 飞行参数标签
     folium.Marker(
@@ -349,33 +352,49 @@ if st.session_state.page == "航线规划":
             st.session_state.pending_polygon = None
             st.success("已清除所有障碍物")
 
-        st.divider()
-        st.subheader("✏️ 添加障碍物（圈选）")
-        st.markdown("1️⃣ 点击地图左上角多边形图标（⏢）\n2️⃣ 在地图上单击顶点，**双击完成绘制**\n3️⃣ 捕获成功后下方显示顶点数\n4️⃣ 填写名称和高度，点击添加")
+      st.divider()
+        st.subheader("🗂️ 障碍物持久化")
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("💾 保存障碍物", use_container_width=True):
+                save_obstacles()
+        with col2:
+            if st.button("📂 加载障碍物", use_container_width=True):
+                load_obstacles()
+        if st.button("🗑️ 清除全部障碍物", use_container_width=True):
+            st.session_state.obstacles = []
+            st.session_state.drawn_polygon = None
+            st.success("已清除所有障碍物")
         
-        if st.session_state.pending_polygon:
-            st.success(f"✅ 已捕获多边形，顶点数: {len(st.session_state.pending_polygon)}")
+        st.divider()
+        st.subheader("➕ 添加障碍物（多边形圈选）")
+        st.markdown("1️⃣ 在地图上绘制多边形\n2️⃣ **点击 Save 按钮**\n3️⃣ 填写信息并添加")
+        
+        # 显示当前捕获的多边形状态
+        if st.session_state.drawn_polygon:
+            st.success(f"✅ 已捕获多边形，顶点数: {len(st.session_state.drawn_polygon)}")
         else:
             st.info("⏳ 尚未捕获多边形，请先绘制")
         
         new_obs_name = st.text_input("障碍物名称", placeholder="例如：新建筑")
         new_obs_height = st.number_input("高度 (米)", min_value=0, max_value=200, value=30)
         
-        if st.button("✅ 添加为障碍物"):
-            if st.session_state.pending_polygon and len(st.session_state.pending_polygon) >= 3:
-                if new_obs_name.strip():
+        if st.button("✅ 添加已圈选的多边形"):
+            if st.session_state.drawn_polygon and len(st.session_state.drawn_polygon) >= 3:
+                if new_obs_name:
                     st.session_state.obstacles.append({
-                        "name": new_obs_name.strip(),
-                        "coords": st.session_state.pending_polygon,
+                        "name": new_obs_name,
+                        "coords": st.session_state.drawn_polygon,
                         "height": new_obs_height
                     })
                     st.success(f"已添加障碍物: {new_obs_name}")
-                    st.session_state.pending_polygon = None
+                    st.session_state.drawn_polygon = None
                     st.rerun()
                 else:
                     st.error("请输入障碍物名称")
             else:
                 st.error("请先在地图上绘制一个多边形（至少3个顶点）")
+
 
     # --- 坐标转换逻辑 ---
     if is_gcj02:
