@@ -118,231 +118,98 @@ def perpendicular_point(px, py, x1, y1, x2, y2, offset_meters, direction='left')
     return px + delta_lng, py + delta_lat
     
 def calculate_avoidance_waypoints(start, end, obstacles, flight_height, safe_radius, strategy, bypass_offset):
-    # 1. 筛选威胁障碍物，并构建膨胀后的多边形顶点
-    threatening_polygons = []
+    # 1. 筛选威胁障碍物
+    threatening = []
     for obs in obstacles:
         if obs['height'] >= flight_height:
             coords = obs['coords']
-            # 计算中心
             center_lng = sum(c[0] for c in coords) / len(coords)
             center_lat = sum(c[1] for c in coords) / len(coords)
-            
-            # 构建膨胀多边形（向外推 safe_radius 米）
-            buffered_coords = []
-            n = len(coords)
-            for i in range(n):
-                prev = coords[(i-1) % n]
-                curr = coords[i]
-                next_coord = coords[(i+1) % n]
-                
-                # 当前顶点的两条边
-                dx1 = curr[0] - prev[0]
-                dy1 = curr[1] - prev[1]
-                dx2 = next_coord[0] - curr[0]
-                dy2 = next_coord[1] - curr[1]
-                
-                len1 = math.hypot(dx1, dy1)
-                len2 = math.hypot(dx2, dy2)
-                if len1 == 0 or len2 == 0:
-                    continue
-                
-                # 两条边的法向量（垂直于边，指向外侧需要基于顶点角度判断）
-                nx1 = -dy1 / len1  # 左侧法向量
-                ny1 = dx1 / len1
-                nx2 = -dy2 / len2
-                ny2 = dx2 / len2
-                
-                # 合并法向量（平均方向），并归一化
-                nx = (nx1 + nx2) / 2
-                ny = (ny1 + ny2) / 2
-                nl = math.hypot(nx, ny)
-                if nl > 0:
-                    nx /= nl
-                    ny /= nl
-                
-                # 转换为经纬度偏移
-                center_lat_rad = math.radians(center_lat)
-                meters_per_deg_lat = 111320.0
-                meters_per_deg_lng = 111320.0 * math.cos(center_lat_rad)
-                
-                expand_lng = curr[0] + (safe_radius * nx) / meters_per_deg_lng
-                expand_lat = curr[1] + (safe_radius * ny) / meters_per_deg_lat
-                buffered_coords.append((expand_lng, expand_lat))
-            
-            threatening_polygons.append({
-                'coords': buffered_coords,
+            # 计算最大半径
+            max_r = max(math.hypot(c[0]-center_lng, c[1]-center_lat) for c in coords)
+            threatening.append({
                 'center': (center_lng, center_lat),
+                'radius': max_r + safe_radius,  # 膨胀半径
+                'coords': coords,
                 'height': obs['height']
             })
-    
-    if strategy == 'direct' or not threatening_polygons:
+
+    if strategy == 'direct' or not threatening:
         return [start, end]
-    
-    # 2. 线段与多边形的相交检测（使用分离轴定理）
-    def line_intersects_polygon(p1, p2, polygon_coords):
-        # 先检查线段端点是否在多边形内
-        def point_in_polygon(px, py, poly):
-            inside = False
-            j = len(poly) - 1
-            for i in range(len(poly)):
-                if ((poly[i][1] > py) != (poly[j][1] > py)) and \
-                   (px < (poly[j][0] - poly[i][0]) * (py - poly[i][1]) / (poly[j][1] - poly[i][1]) + poly[i][0]):
-                    inside = not inside
-                j = i
-            return inside
-        
-        if point_in_polygon(p1[0], p1[1], polygon_coords) or point_in_polygon(p2[0], p2[1], polygon_coords):
-            return True
-        
-        # 检查线段与多边形每条边的相交
-        for i in range(len(polygon_coords)):
-            j = (i + 1) % len(polygon_coords)
-            if lines_intersect(p1, p2, polygon_coords[i], polygon_coords[j]):
+
+    # 2. 简单检测：点是否在膨胀圆内
+    def point_in_danger_zone(px, py):
+        for obs in threatening:
+            dist = math.hypot(px - obs['center'][0], py - obs['center'][1])
+            if dist < obs['radius']:
                 return True
         return False
+
+    # 3. 生成绕行点：基于障碍物中心，在上方或下方生成明显的绕行路径
+    waypoints = []
     
-    def lines_intersect(a1, a2, b1, b2):
-        def ccw(A, B, C):
-            return (C[1]-A[1]) * (B[0]-A[0]) > (B[1]-A[1]) * (C[0]-A[0])
-        return ccw(a1, b1, b2) != ccw(a2, b1, b2) and ccw(a1, a2, b1) != ccw(a1, a2, b2)
+    # 找出所有有威胁的障碍物
+    # 按距离起点排序
+    threatening.sort(key=lambda obs: math.hypot(obs['center'][0]-start[0], obs['center'][1]-start[1]))
     
-    # 3. 找到线段与多边形的交点（用于生成绕行点）
-    def get_line_polygon_intersections(p1, p2, polygon_coords):
-        intersections = []
-        for i in range(len(polygon_coords)):
-            j = (i + 1) % len(polygon_coords)
-            inter = line_intersection_point(p1, p2, polygon_coords[i], polygon_coords[j])
-            if inter:
-                intersections.append(inter)
-        # 按离 p1 的距离排序
-        intersections.sort(key=lambda p: math.hypot(p[0]-p1[0], p[1]-p1[1]))
-        return intersections
-    
-    def line_intersection_point(a1, a2, b1, b2):
-        x1, y1 = a1
-        x2, y2 = a2
-        x3, y3 = b1
-        x4, y4 = b2
+    # 对每个障碍物，生成3个固定绕行点
+    all_detour_points = []
+    for obs in threatening:
+        center = obs['center']
+        # 绕行距离：障碍物半径 + 额外安全余量
+        detour_distance = obs['radius'] + bypass_offset * 2
         
-        denom = (x1-x2)*(y3-y4) - (y1-y2)*(x3-x4)
-        if abs(denom) < 1e-12:
-            return None
-        
-        t = ((x1-x3)*(y3-y4) - (y1-y3)*(x3-x4)) / denom
-        u = -((x1-x2)*(y1-y3) - (y1-y2)*(x1-x3)) / denom
-        
-        if 0 <= t <= 1 and 0 <= u <= 1:
-            ix = x1 + t * (x2 - x1)
-            iy = y1 + t * (y2 - y1)
-            return (ix, iy)
-        return None
-    
-    # 4. 主逻辑：逐个处理障碍物，沿着多边形边缘绕行
-    current_path = [start]
-    remaining_point = end
-    
-    for poly_data in threatening_polygons:
-        poly_coords = poly_data['coords']
-        
-        # 检查从 current_path[-1] 到 remaining_point 是否穿过该多边形
-        if not line_intersects_polygon(current_path[-1], remaining_point, poly_coords):
+        # 计算垂直于航线的方向
+        dx = end[0] - start[0]
+        dy = end[1] - start[1]
+        length = math.hypot(dx, dy)
+        if length == 0:
             continue
         
-        # 找到进入点和离开点
-        intersections = get_line_polygon_intersections(current_path[-1], remaining_point, poly_coords)
-        if len(intersections) < 2:
-            # 如果无法找到两个交点，使用中心点作为参考
-            center = poly_data['center']
-            closest = get_closest_point_on_segment(center[0], center[1], 
-                                                   current_path[-1][0], current_path[-1][1], 
-                                                   remaining_point[0], remaining_point[1])
-            # 生成几个绕行点
-            for t in [0.3, 0.5, 0.7]:
-                inter_x = current_path[-1][0] + (remaining_point[0] - current_path[-1][0]) * t
-                inter_y = current_path[-1][1] + (remaining_point[1] - current_path[-1][1]) * t
-                if strategy == 'left':
-                    pt = perpendicular_point(inter_x, inter_y,
-                                            current_path[-1][0], current_path[-1][1],
-                                            remaining_point[0], remaining_point[1],
-                                            bypass_offset, 'left')
-                else:
-                    pt = perpendicular_point(inter_x, inter_y,
-                                            current_path[-1][0], current_path[-1][1],
-                                            remaining_point[0], remaining_point[1],
-                                            bypass_offset, 'right')
-                current_path.append(pt)
+        # 垂直向量（逆时针90度）
+        perp_x = -dy / length
+        perp_y = dx / length
+        
+        # 决定方向
+        if strategy == 'left':
+            direction_mult = 1
+        elif strategy == 'right':
+            direction_mult = -1
         else:
-            # 有明确交点，沿多边形边缘生成绕行点
-            entry_point = intersections[0]
-            exit_point = intersections[-1]
-            
-            # 找到多边形上在 entry 和 exit 之间的顶点序列
-            entry_idx = -1
-            exit_idx = -1
-            min_entry_dist = float('inf')
-            min_exit_dist = float('inf')
-            
-            for i, coord in enumerate(poly_coords):
-                d_entry = math.hypot(coord[0]-entry_point[0], coord[1]-entry_point[1])
-                d_exit = math.hypot(coord[0]-exit_point[0], coord[1]-exit_point[1])
-                if d_entry < min_entry_dist:
-                    min_entry_dist = d_entry
-                    entry_idx = i
-                if d_exit < min_exit_dist:
-                    min_exit_dist = d_exit
-                    exit_idx = i
-            
-            # 决定沿多边形的哪个方向走（顺时针或逆时针）
-            if strategy == 'left':
-                # 左绕行：取逆时针方向的顶点
-                step = 1
-            elif strategy == 'right':
-                step = -1
-            else:
-                # 最佳策略：选较短的路径
-                n_verts = len(poly_coords)
-                dist_forward = 0
-                dist_backward = 0
-                i = entry_idx
-                while i != exit_idx:
-                    j = (i + 1) % n_verts
-                    dist_forward += math.hypot(poly_coords[j][0]-poly_coords[i][0], poly_coords[j][1]-poly_coords[i][1])
-                    i = j
-                i = entry_idx
-                while i != exit_idx:
-                    j = (i - 1) % n_verts
-                    dist_backward += math.hypot(poly_coords[j][0]-poly_coords[i][0], poly_coords[j][1]-poly_coords[i][1])
-                    i = j
-                step = 1 if dist_forward <= dist_backward else -1
-            
-            # 生成绕行航点（取多边形顶点，适当外推）
-            current_path.append(entry_point)
-            
-            i = entry_idx
-            while True:
-                i = (i + step) % len(poly_coords)
-                if i == exit_idx:
-                    break
-                # 将多边形顶点再往外推一点
-                pt = poly_coords[i]
-                dx = pt[0] - poly_data['center'][0]
-                dy = pt[1] - poly_data['center'][1]
-                dist = math.hypot(dx, dy)
-                if dist > 0:
-                    push_factor = 1.1  # 再推10%
-                    new_lng = poly_data['center'][0] + dx * push_factor
-                    new_lat = poly_data['center'][1] + dy * push_factor
-                    current_path.append((new_lng, new_lat))
-                else:
-                    current_path.append(pt)
-            
-            current_path.append(exit_point)
+            # 默认向左（上方）
+            direction_mult = 1
+        
+        # 生成3个绕行点，形成三角绕行路径
+        detour_lat_rad = math.radians(center[1])
+        meters_per_deg_lat = 111320.0
+        meters_per_deg_lng = 111320.0 * math.cos(detour_lat_rad)
+        
+        # 绕行点1：障碍物前方
+        lng1 = center[0] + (perp_x * detour_distance * direction_mult) / meters_per_deg_lng
+        lat1 = center[1] + (perp_y * detour_distance * direction_mult) / meters_per_deg_lat
+        
+        # 绕行点2：障碍物正上方/下方
+        lng2 = center[0] + (perp_x * detour_distance * 1.5 * direction_mult) / meters_per_deg_lng
+        lat2 = center[1] + (perp_y * detour_distance * 1.5 * direction_mult) / meters_per_deg_lat
+        
+        # 绕行点3：障碍物后方
+        lng3 = center[0] + (perp_x * detour_distance * direction_mult) / meters_per_deg_lng
+        lat3 = center[1] + (perp_y * detour_distance * direction_mult) / meters_per_deg_lat
+        
+        all_detour_points.append((lng1, lat1))
+        all_detour_points.append((lng2, lat2))
+        all_detour_points.append((lng3, lat3))
     
-    # 确保终点在路径中
-    if current_path[-1] != end:
-        current_path.append(end)
+    # 4. 构建最终路径：起点 -> 绕行点（按离起点距离排序） -> 终点
+    if all_detour_points:
+        # 按离起点的距离排序绕行点
+        all_detour_points.sort(key=lambda p: math.hypot(p[0]-start[0], p[1]-start[1]))
+        
+        waypoints = [start] + all_detour_points + [end]
+    else:
+        waypoints = [start, end]
     
-    return current_path
+    return waypoints
 # ==================== 初始化 Session State ====================
 if "heartbeats" not in st.session_state:
     st.session_state.heartbeats = []
