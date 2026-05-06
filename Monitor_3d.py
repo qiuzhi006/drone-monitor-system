@@ -118,7 +118,7 @@ def perpendicular_point(px, py, x1, y1, x2, y2, offset_meters, direction='left')
     return px + delta_lng, py + delta_lat
     
 def calculate_avoidance_waypoints(start, end, obstacles, flight_height, safe_radius, strategy, bypass_offset):
-    # 1. 筛选出高于飞行高度的威胁障碍物，用圆形缓冲区近似
+    # 1. 筛选威胁
     threatening = []
     for obs in obstacles:
         if obs['height'] >= flight_height:
@@ -126,8 +126,6 @@ def calculate_avoidance_waypoints(start, end, obstacles, flight_height, safe_rad
             center_lat = sum(c[1] for c in obs['coords']) / len(obs['coords'])
             max_r = max(math.hypot(c[0]-center_lng, c[1]-center_lat) for c in obs['coords'])
             effective_radius = max_r + safe_radius
-            if effective_radius <= 0:
-                continue
             threatening.append({
                 'center': (center_lng, center_lat),
                 'radius': effective_radius,
@@ -137,32 +135,48 @@ def calculate_avoidance_waypoints(start, end, obstacles, flight_height, safe_rad
     if strategy == 'direct' or not threatening:
         return [start, end]
 
-    # 2. 检测线段是否与任何威胁圆相交
-    def line_intersects_obs(p1, p2):
+    # 2. 线段与威胁圆的相交检测
+    def line_vs_obs(p1, p2):
         for obs in threatening:
             dist = point_to_segment_distance(obs['center'][0], obs['center'][1], p1[0], p1[1], p2[0], p2[1])
             if dist < obs['radius']:
                 return True, obs
         return False, None
 
-    # 3. 主规划循环：逐步绕开障碍物
-    waypoints = [start]
-    current_start = start
-    # 按距离起点远近排序，依次处理
+    # 3. 检查整条路径是否完全安全
+    def is_path_safe(points):
+        for i in range(len(points)-1):
+            intersects, _ = line_vs_obs(points[i], points[i+1])
+            if intersects:
+                return False
+        return True
+
+    # 4. 按起点距离排序威胁
     threatening.sort(key=lambda obs: math.hypot(obs['center'][0]-start[0], obs['center'][1]-start[1]))
 
+    # 5. 构建初始路径
+    current_path = [start, end]
+
+    # 6. 逐个处理障碍物
     for obs in threatening:
-        # 检查从 current_start 到 end 是否与该障碍物相交
-        intersects, _ = line_intersects_obs(current_start, end)
-        if not intersects:
-            continue  # 当前段已经安全
+        # 找到当前路径中第一个与该障碍物相交的航段
+        split_idx = -1
+        for i in range(len(current_path)-1):
+            intersects, _ = line_vs_obs(current_path[i], current_path[i+1])
+            if intersects:
+                split_idx = i
+                break
 
+        if split_idx == -1:
+            continue  # 该障碍物没影响，跳过
+
+        p_a = current_path[split_idx]
+        p_b = current_path[split_idx+1]
         center = obs['center']
-        safe_r = obs['radius'] * 1.05  # 稍微放大确保绕开
-        bypass_r = max(bypass_offset, safe_r)
+        bypass_r = max(bypass_offset, obs['radius'] * 1.05)
 
-        # 找投影点
-        closest = get_closest_point_on_segment(center[0], center[1], current_start[0], current_start[1], end[0], end[1])
+        # 投影点
+        closest = get_closest_point_on_segment(center[0], center[1], p_a[0], p_a[1], p_b[0], p_b[1])
 
         # 决定方向
         if strategy == 'left':
@@ -170,44 +184,59 @@ def calculate_avoidance_waypoints(start, end, obstacles, flight_height, safe_rad
         elif strategy == 'right':
             direction = 'right'
         else:
-            left_pt = perpendicular_point(closest[0], closest[1], current_start[0], current_start[1], end[0], end[1], bypass_r, 'left')
-            right_pt = perpendicular_point(closest[0], closest[1], current_start[0], current_start[1], end[0], end[1], bypass_r, 'right')
-            if (math.hypot(left_pt[0]-end[0], left_pt[1]-end[1]) <= 
-                math.hypot(right_pt[0]-end[0], right_pt[1]-end[1])):
+            left_pt = perpendicular_point(closest[0], closest[1], p_a[0], p_a[1], p_b[0], p_b[1], bypass_r, 'left')
+            right_pt = perpendicular_point(closest[0], closest[1], p_a[0], p_a[1], p_b[0], p_b[1], bypass_r, 'right')
+            if math.hypot(left_pt[0]-p_b[0], left_pt[1]-p_b[1]) <= math.hypot(right_pt[0]-p_b[0], right_pt[1]-p_b[1]):
                 direction = 'left'
             else:
                 direction = 'right'
 
-        # 生成两个绕行航点，让航线形成明显的弧形（沿障碍物边缘）
-        arc_points = []
-        for t in [0.25, 0.75]:  # 两点分段
-            inter_x = current_start[0] + (end[0] - current_start[0]) * t
-            inter_y = current_start[1] + (end[1] - current_start[1]) * t
-            pt = perpendicular_point(inter_x, inter_y, current_start[0], current_start[1], end[0], end[1], bypass_r, direction)
-            arc_points.append(pt)
+        # 生成弧上航点 (4个点让弧线平滑)
+        arc = []
+        num_arc = 4
+        for k in range(1, num_arc + 1):
+            t = k / (num_arc + 1)
+            inter_x = p_a[0] + (p_b[0] - p_a[0]) * t
+            inter_y = p_a[1] + (p_b[1] - p_a[1]) * t
+            pt = perpendicular_point(inter_x, inter_y, p_a[0], p_a[1], p_b[0], p_b[1], bypass_r, direction)
+            arc.append(pt)
 
-        # 入弧点 → 弧上两点 → 出弧点（实际上是路线继续到终点）
-        waypoints.extend(arc_points)
-        current_start = waypoints[-1]  # 从最后一个弧点继续
+        # 重构路径：前段 + 弧 + 后段
+        new_path = current_path[:split_idx+1] + arc + current_path[split_idx+1:]
+        current_path = new_path
 
-    waypoints.append(end)
+    # 7. 最后再检查一遍，确保无遗漏
+    max_iter = 20
+    iter_count = 0
+    while not is_path_safe(current_path) and iter_count < max_iter:
+        for i in range(len(current_path)-1):
+            intersects, bad_obs = line_vs_obs(current_path[i], current_path[i+1])
+            if intersects:
+                cp = get_closest_point_on_segment(bad_obs['center'][0], bad_obs['center'][1],
+                                                  current_path[i][0], current_path[i][1],
+                                                  current_path[i+1][0], current_path[i+1][1])
+                # 直接推到安全距离以外
+                push_dist = bad_obs['radius'] * 1.3
+                if strategy == 'right':
+                    new_pt = perpendicular_point(cp[0], cp[1], 
+                                                current_path[i][0], current_path[i][1],
+                                                current_path[i+1][0], current_path[i+1][1],
+                                                push_dist, 'right')
+                else:
+                    new_pt = perpendicular_point(cp[0], cp[1],
+                                                current_path[i][0], current_path[i][1],
+                                                current_path[i+1][0], current_path[i+1][1],
+                                                push_dist, 'left')
+                # 把当前段终点替换
+                current_path[i+1] = new_pt
+                break
+        iter_count += 1
 
-    # 最后做一次整体检查，如果仍与任何障碍物相交，尝试微调（极简平滑）
-    for i in range(len(waypoints)-1):
-        intersects, bad_obs = line_intersects_obs(waypoints[i], waypoints[i+1])
-        if intersects:
-            # 简单粗暴：将这段的终点沿垂直方向再推远一点
-            cp = get_closest_point_on_segment(bad_obs['center'][0], bad_obs['center'][1],
-                                             waypoints[i][0], waypoints[i][1],
-                                             waypoints[i+1][0], waypoints[i+1][1])
-            new_pt = perpendicular_point(cp[0], cp[1],
-                                        waypoints[i][0], waypoints[i][1],
-                                        waypoints[i+1][0], waypoints[i+1][1],
-                                        bad_obs['radius'] * 1.5, 
-                                        'left')
-            waypoints[i+1] = new_pt
+    # 确保终点始终在
+    if current_path[-1] != end:
+        current_path.append(end)
 
-    return waypoints
+    return current_path
 # ==================== 初始化 Session State ====================
 if "heartbeats" not in st.session_state:
     st.session_state.heartbeats = []
