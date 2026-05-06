@@ -506,9 +506,9 @@ elif st.session_state.page == "飞行监控":
             lat2_rad = math.radians(p2[1])
             dlat = math.radians(p2[1] - p1[1])
             dlng = math.radians(p2[0] - p1[0])
-            a = math.sin(dlat/2)**2 + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(dlng/2)**2
-            c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
-            distance = 6371000 * c
+            a_val = math.sin(dlat/2)**2 + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(dlng/2)**2
+            c_val = 2 * math.atan2(math.sqrt(a_val), math.sqrt(1-a_val))
+            distance = 6371000 * c_val
             segment_distances.append(distance)
             total += distance
         return total, segment_distances
@@ -534,10 +534,10 @@ elif st.session_state.page == "飞行监控":
             st.session_state.flight_sim_running = False
             st.session_state.flight_sim_start_time = None
             st.success(f"航线已导入，共 {len(waypoints)} 个航点，总距离 {total_dist:.1f} 米")
-        else:
-            total_dist = st.session_state.flight_sim_total_distance
-            waypoints = st.session_state.flight_sim_waypoints
-            seg_dists = st.session_state.flight_sim_segment_distances
+        
+        total_dist = st.session_state.flight_sim_total_distance
+        waypoints = st.session_state.flight_sim_waypoints
+        seg_dists = st.session_state.flight_sim_segment_distances
         
         st.divider()
         
@@ -634,8 +634,8 @@ elif st.session_state.page == "飞行监控":
             arrival_time = datetime.now() + timedelta(seconds=remaining_time)
             arrival_str = arrival_time.strftime("%H:%M:%S")
         else:
-            current_lng = waypoints[0][0] if waypoints else st.session_state.coords_a["lon"]
-            current_lat = waypoints[0][1] if waypoints else st.session_state.coords_a["lat"]
+            current_lng = waypoints[0][0]
+            current_lat = waypoints[0][1]
             flown_distance = 0
             remaining_distance = total_dist
             current_speed = 0
@@ -651,8 +651,8 @@ elif st.session_state.page == "飞行监控":
         with col_map:
             st.subheader("🗺️ 实时飞行地图")
             
-            center_lat = (waypoints[0][1] + waypoints[-1][1]) / 2 if waypoints else 32.234
-            center_lng = (waypoints[0][0] + waypoints[-1][0]) / 2 if waypoints else 118.751
+            center_lat = (waypoints[0][1] + waypoints[-1][1]) / 2
+            center_lng = (waypoints[0][0] + waypoints[-1][0]) / 2
             
             m = folium.Map(
                 location=[center_lat, center_lng],
@@ -781,5 +781,5 @@ elif st.session_state.page == "飞行监控":
         
         # 自动刷新
         if st.session_state.flight_sim_running:
-            time.sleep(1)
+            time.sleep(2)
             st.rerun()
