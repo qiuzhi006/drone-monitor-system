@@ -495,7 +495,6 @@ if st.session_state.page == "航线规划":
 elif st.session_state.page == "飞行监控":
     st.title("📡 飞行实时画面 - 任务执行监控")
 
-    # 计算总距离和各航段距离
     def calculate_distances(waypoints):
         total = 0
         segment_distances = []
@@ -748,7 +747,7 @@ elif st.session_state.page == "飞行监控":
                 filled=False,
                 stroked=True,
             )
-            
+
             layers = [polygon_layer, plan_layer, flown_layer, wp_layer, drone_layer, circle_layer]
 
             view_state = pdk.ViewState(
@@ -758,8 +757,8 @@ elif st.session_state.page == "飞行监控":
                 pitch=0,
             )
 
-          gaode_satellite = "https://webst01.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}"
-            )
+            # 高德卫星瓦片 URL（注意花括号占位符）
+            gaode_satellite = "https://webst01.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}"
 
             st.pydeck_chart(pdk.Deck(
                 layers=layers,
@@ -770,7 +769,7 @@ elif st.session_state.page == "飞行监控":
 
         # ---- 右侧数据面板 ----
         with col_panel:
-            # 注入航点闪烁动画 CSS
+            # 航点闪烁 CSS 动画
             if trigger_blink:
                 st.markdown("""
                 <style>
@@ -817,7 +816,7 @@ elif st.session_state.page == "飞行监控":
             else:
                 st.info("⏸️ 等待开始")
 
-        # 自动刷新
+        # 自动刷新循环（0.5 秒一次，地图平滑，面板实时更新）
         if st.session_state.flight_sim_running:
             time.sleep(0.5)
             st.rerun()
