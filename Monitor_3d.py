@@ -492,9 +492,11 @@ if st.session_state.page == "航线规划":
             coords = geo.get("coordinates", [])
             if coords:
                 st.session_state.drawn_polygon = coords[0][:-1]
+# ==================== 飞行监控页面 ====================
 elif st.session_state.page == "飞行监控":
     st.title("📡 飞行实时画面 - 任务执行监控")
-
+    
+    # 计算总距离和各航段距离
     def calculate_distances(waypoints):
         total = 0
         segment_distances = []
@@ -511,11 +513,12 @@ elif st.session_state.page == "飞行监控":
             segment_distances.append(distance)
             total += distance
         return total, segment_distances
-
-    # ---------- 侧边栏控制 ----------
+    
+    # 侧边栏控制
     with st.sidebar:
         st.divider()
         st.header("🎮 飞行控制")
+        
         if st.button("📐 导入当前航线", use_container_width=True):
             start = (st.session_state.coords_a["lon"], st.session_state.coords_a["lat"])
             end = (st.session_state.coords_b["lon"], st.session_state.coords_b["lat"])
@@ -529,23 +532,24 @@ elif st.session_state.page == "飞行监控":
             st.session_state.flight_sim_total_distance = total_dist
             st.session_state.flight_sim_segment_distances = seg_dists
             st.session_state.flight_sim_current_index = 0
-            st.session_state.flight_sim_last_wp_index = -1
             st.session_state.flight_sim_running = False
             st.session_state.flight_sim_start_time = None
             st.success(f"航线已导入，共 {len(waypoints)} 个航点，总距离 {total_dist:.1f} 米")
-
+        
         total_dist = st.session_state.flight_sim_total_distance
         waypoints = st.session_state.flight_sim_waypoints
         seg_dists = st.session_state.flight_sim_segment_distances
-
+        
         st.divider()
+        
         speed = st.slider("飞行速度 (m/s)", 1.0, 20.0, st.session_state.flight_sim_speed, 0.5)
         st.session_state.flight_sim_speed = speed
+        
         st.divider()
-
+        
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("▶️ 开始任务", use_container_width=True, disabled=len(waypoints)==0):
+            if st.button("▶️ 开始任务", use_container_width=True, disabled=len(waypoints) == 0):
                 st.session_state.flight_sim_running = True
                 if st.session_state.flight_sim_start_time is None:
                     st.session_state.flight_sim_start_time = time.time()
@@ -554,36 +558,37 @@ elif st.session_state.page == "飞行监控":
             if st.button("⏹️ 停止任务", use_container_width=True):
                 st.session_state.flight_sim_running = False
                 st.rerun()
-
+        
         if st.button("🔄 重置任务", use_container_width=True):
             st.session_state.flight_sim_running = False
             st.session_state.flight_sim_start_time = None
             st.session_state.flight_sim_current_index = 0
-            st.session_state.flight_sim_last_wp_index = -1
             st.rerun()
-
+        
         st.divider()
         st.subheader("📋 航线信息")
-        st.caption(f"起点: {st.session_state.coords_a['lat']:.6f}, {st.session_state.coords_a['lon']:.6f}")
-        st.caption(f"终点: {st.session_state.coords_b['lat']:.6f}, {st.session_state.coords_b['lon']:.6f}")
-        st.caption(f"飞行高度: {st.session_state.flight_height} m | 安全半径: {st.session_state.safe_radius} m")
+        st.caption(f"起点A: {st.session_state.coords_a['lat']:.6f}, {st.session_state.coords_a['lon']:.6f}")
+        st.caption(f"终点B: {st.session_state.coords_b['lat']:.6f}, {st.session_state.coords_b['lon']:.6f}")
+        st.caption(f"飞行高度: {st.session_state.flight_height} m")
+        st.caption(f"安全半径: {st.session_state.safe_radius} m")
         st.caption(f"航点数量: {len(waypoints)}")
         if total_dist > 0:
             st.caption(f"总距离: {total_dist:.1f} 米")
-
-    # ---------- 主界面 ----------
+    
+    # 主界面
     if len(waypoints) == 0:
-        st.warning("⚠️ 请先点击「📐 导入当前航线」加载航线")
+        st.warning("⚠️ 请先在侧边栏点击「📐 导入当前航线」按钮，加载航线规划结果")
     else:
-        # ---- 计算当前位置和数据 ----
+        # 计算当前位置
         if st.session_state.flight_sim_running:
             elapsed_time = time.time() - st.session_state.flight_sim_start_time
             current_speed = st.session_state.flight_sim_speed
             flown_distance = elapsed_time * current_speed
-
+            
             total_flown = 0
             current_index = 0
             segment_progress = 0
+            
             for i, seg_dist in enumerate(seg_dists):
                 if total_flown + seg_dist >= flown_distance:
                     current_index = i
@@ -595,46 +600,43 @@ elif st.session_state.page == "飞行监控":
                 current_index = len(waypoints) - 1
                 segment_progress = 1
                 st.session_state.flight_sim_running = False
-
-            # 检测航点是否变化，用于触发屏闪
-            wp_changed = (current_index != st.session_state.flight_sim_last_wp_index)
-            if wp_changed:
-                st.session_state.flight_sim_last_wp_index = current_index
-                trigger_blink = True
-            else:
-                trigger_blink = False
-
+            
             st.session_state.flight_sim_current_index = current_index
+            
             p1 = waypoints[current_index]
-            p2 = waypoints[min(current_index+1, len(waypoints)-1)]
+            p2_index = min(current_index + 1, len(waypoints) - 1)
+            p2 = waypoints[p2_index]
             current_lng = p1[0] + (p2[0] - p1[0]) * segment_progress
             current_lat = p1[1] + (p2[1] - p1[1]) * segment_progress
-
+            
             remaining_distance = max(0, total_dist - flown_distance)
             remaining_time = remaining_distance / current_speed if current_speed > 0 else 9999
-            battery_remaining = max(0, 100 * (1 - min(elapsed_time, 1800) / 1800))
-
+            
+            total_battery_time = 1800
+            battery_remaining = max(0, 100 * (1 - min(elapsed_time, total_battery_time) / total_battery_time))
+            
             hours = int(elapsed_time // 3600)
             minutes = int((elapsed_time % 3600) // 60)
             seconds = int(elapsed_time % 60)
-            elapsed_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}" if hours>0 else f"{minutes:02d}:{seconds:02d}"
-
+            elapsed_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}" if hours > 0 else f"{minutes:02d}:{seconds:02d}"
+            
             if remaining_time >= 3600:
-                rem_h = int(remaining_time // 3600)
-                rem_m = int((remaining_time % 3600) // 60)
-                rem_s = int(remaining_time % 60)
-                remaining_str = f"{rem_h:02d}:{rem_m:02d}:{rem_s:02d}"
+                rem_hours = int(remaining_time // 3600)
+                rem_minutes = int((remaining_time % 3600) // 60)
+                rem_seconds = int(remaining_time % 60)
+                remaining_str = f"{rem_hours:02d}:{rem_minutes:02d}:{rem_seconds:02d}"
             elif remaining_time >= 0:
-                rem_m = int(remaining_time // 60)
-                rem_s = int(remaining_time % 60)
-                remaining_str = f"{rem_m:02d}:{rem_s:02d}"
+                rem_minutes = int(remaining_time // 60)
+                rem_seconds = int(remaining_time % 60)
+                remaining_str = f"{rem_minutes:02d}:{rem_seconds:02d}"
             else:
                 remaining_str = "00:00"
-
+            
             arrival_time = datetime.now() + timedelta(seconds=remaining_time)
             arrival_str = arrival_time.strftime("%H:%M:%S")
         else:
-            current_lng, current_lat = waypoints[0][0], waypoints[0][1]
+            current_lng = waypoints[0][0]
+            current_lat = waypoints[0][1]
             flown_distance = 0
             remaining_distance = total_dist
             current_speed = 0
@@ -643,180 +645,142 @@ elif st.session_state.page == "飞行监控":
             battery_remaining = 100
             arrival_str = "--:--:--"
             current_index = 0
-            trigger_blink = False
-
-        # ---- 地图 + 数据面板布局 ----
+        
+        # 布局：左侧地图，右侧面板
         col_map, col_panel = st.columns([3, 1])
-
+        
         with col_map:
-            st.subheader("🗺️ 实时飞行地图 (Pydeck – 无闪烁)")
-
-            import pydeck as pdk
-
-            # 1. 障碍物多边形图层
-            polygon_data = []
-            for obs in st.session_state.obstacles:
-                coords = obs["coords"]
-                polygon_data.append({
-                    "polygon": [[c[0], c[1]] for c in coords],
-                    "name": obs["name"],
-                    "height": obs["height"]
-                })
-            polygon_layer = pdk.Layer(
-                "PolygonLayer",
-                data=polygon_data,
-                get_polygon="polygon",
-                get_fill_color=[255, 165, 0, 100],
-                get_line_color=[255, 140, 0],
-                line_width_min_pixels=2,
-                pickable=True,
+            st.subheader("🗺️ 实时飞行地图")
+            
+            center_lat = (waypoints[0][1] + waypoints[-1][1]) / 2
+            center_lng = (waypoints[0][0] + waypoints[-1][0]) / 2
+            
+            m = folium.Map(
+                location=[center_lat, center_lng],
+                zoom_start=17,
+                tiles='https://webst01.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}',
+                attr='高德卫星地图',
+                height=500
             )
-
-            # 2. 规划航线图层
-            plan_path = [[p[0], p[1]] for p in waypoints]
-            plan_layer = pdk.Layer(
-                "PathLayer",
-                data=[{"path": plan_path}],
-                get_path="path",
-                get_color=[128, 128, 128],
-                width_min_pixels=3,
-                dash_array=[5, 5],
-                pickable=False,
-            )
-
-            # 3. 已飞行路径图层
-            flown_path_data = []
+            
+            # 规划航线
+            folium.PolyLine(
+                locations=[(p[1], p[0]) for p in waypoints],
+                color='gray',
+                weight=3,
+                opacity=0.6,
+                dash_array='5,5',
+                tooltip='规划航线'
+            ).add_to(m)
+            
+            # 已飞行路径
             if st.session_state.flight_sim_running and flown_distance > 0:
-                flown_pts = [waypoints[0]]
+                flown_waypoints = [waypoints[0]]
                 total_check = 0
-                for i, seg in enumerate(seg_dists):
-                    total_check += seg
+                for i, seg_dist in enumerate(seg_dists):
+                    total_check += seg_dist
                     if total_check <= flown_distance:
-                        flown_pts.append(waypoints[i+1])
+                        flown_waypoints.append(waypoints[i + 1])
                     else:
-                        flown_pts.append((current_lng, current_lat))
+                        flown_waypoints.append((current_lng, current_lat))
                         break
-                if len(flown_pts) >= 2:
-                    flown_path_data = [{"path": [[p[0], p[1]] for p in flown_pts]}]
-            flown_layer = pdk.Layer(
-                "PathLayer",
-                data=flown_path_data,
-                get_path="path",
-                get_color=[255, 0, 0],
-                width_min_pixels=4,
-                pickable=False,
-            )
-
-            # 4. 航点标记图层
-            wp_data = []
+                if len(flown_waypoints) >= 2:
+                    folium.PolyLine(
+                        locations=[(p[1], p[0]) for p in flown_waypoints],
+                        color='red',
+                        weight=4,
+                        opacity=0.9,
+                        tooltip='已飞行路径'
+                    ).add_to(m)
+            
+            # 航点标记
             for i, (lng, lat) in enumerate(waypoints):
-                wp_data.append({
-                    "position": [lng, lat],
-                    "label": f"航点{i}",
-                    "color": [0, 255, 0] if i==0 else ([255, 0, 0] if i==len(waypoints)-1 else [0, 0, 255])
-                })
-            wp_layer = pdk.Layer(
-                "ScatterplotLayer",
-                data=wp_data,
-                get_position="position",
-                get_radius=5,
-                get_fill_color="color",
-                pickable=True,
-            )
-
-            # 5. 无人机当前位置图层
-            drone_data = [{"position": [current_lng, current_lat], "radius": st.session_state.safe_radius}]
-            drone_layer = pdk.Layer(
-                "ScatterplotLayer",
-                data=drone_data,
-                get_position="position",
-                get_radius=8,
-                get_fill_color=[255, 0, 0],
-                pickable=True,
-            )
-            circle_layer = pdk.Layer(
-                "ScatterplotLayer",
-                data=drone_data,
-                get_position="position",
-                get_radius="radius",
-                get_fill_color=[255, 0, 0, 30],
-                get_line_color=[255, 0, 0],
-                line_width_min_pixels=1,
-                radius_scale=1,
-                pickable=False,
-                filled=False,
-                stroked=True,
-            )
-
-            layers = [polygon_layer, plan_layer, flown_layer, wp_layer, drone_layer, circle_layer]
-
-            view_state = pdk.ViewState(
-                latitude=(waypoints[0][1] + waypoints[-1][1]) / 2,
-                longitude=(waypoints[0][0] + waypoints[-1][0]) / 2,
-                zoom=16,
-                pitch=0,
-            )
-
-            # 高德卫星瓦片 URL（注意花括号占位符）
-            gaode_satellite = "https://webst01.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}"
-
-            st.pydeck_chart(pdk.Deck(
-                layers=layers,
-                initial_view_state=view_state,
-                map_style=gaode_satellite,
-                tooltip={"text": "{name} {label}"}
-            ), use_container_width=True)
-
-        # ---- 右侧数据面板 ----
+                if i == 0:
+                    color = 'green'
+                    icon_name = 'play'
+                elif i == len(waypoints) - 1:
+                    color = 'red'
+                    icon_name = 'flag-checkered'
+                else:
+                    color = 'blue'
+                    icon_name = 'circle'
+                folium.Marker(
+                    location=[lat, lng],
+                    popup=f'航点 {i+1}',
+                    icon=folium.Icon(color=color, icon=icon_name, prefix='fa')
+                ).add_to(m)
+            
+            # 障碍物
+            for obs in st.session_state.obstacles:
+                polygon_coords = [[coord[1], coord[0]] for coord in obs["coords"]]
+                folium.Polygon(
+                    locations=polygon_coords,
+                    color='orange',
+                    fill=True,
+                    fill_color='orange',
+                    fill_opacity=0.4,
+                    weight=2,
+                    tooltip=f"{obs['name']} (高{obs['height']}m)"
+                ).add_to(m)
+            
+            # 无人机当前位置
+            folium.Marker(
+                location=[current_lat, current_lng],
+                popup='无人机当前位置',
+                icon=folium.Icon(color='red', icon='plane', prefix='fa'),
+                z_index_offset=1000
+            ).add_to(m)
+            
+            # 安全半径圈
+            if st.session_state.safe_radius > 0:
+                folium.Circle(
+                    location=[current_lat, current_lng],
+                    radius=st.session_state.safe_radius,
+                    color='red',
+                    fill=True,
+                    fill_opacity=0.1,
+                    weight=1,
+                    dash_array='5,5'
+                ).add_to(m)
+            
+            st_folium(m, width=750, height=500, key="flight_monitor_map")
+        
         with col_panel:
-            # 航点闪烁 CSS 动画
-            if trigger_blink:
-                st.markdown("""
-                <style>
-                @keyframes blink-animation {
-                    0%   { color: red; transform: scale(1.2); }
-                    50%  { color: orange; transform: scale(1.0); }
-                    100% { color: red; transform: scale(1.2); }
-                }
-                .blink-wp {
-                    animation: blink-animation 0.5s ease-in-out 3;
-                    font-weight: bold;
-                }
-                </style>
-                """, unsafe_allow_html=True)
-
             st.subheader("📊 飞行数据")
-            total_wp = len(waypoints)
-            completed_wp = min(current_index + 1, total_wp) if st.session_state.flight_sim_running else 0
-            wp_display = f"{completed_wp}/{total_wp}"
-            if trigger_blink:
-                st.markdown(f'<p class="blink-wp" style="font-size:24px; margin:0;">当前航点 {wp_display}</p>', unsafe_allow_html=True)
-            else:
-                st.metric("当前航点", wp_display)
-
+            
+            total_waypoints = len(waypoints)
+            completed_waypoints = min(current_index + 1, total_waypoints) if st.session_state.flight_sim_running else 0
+            st.metric("当前航点", f"{completed_waypoints}/{total_waypoints}")
+            
             display_speed = current_speed if st.session_state.flight_sim_running else 0
             st.metric("飞行速度", f"{display_speed:.1f} m/s")
+            
             st.metric("已用时间", elapsed_str)
+            
             st.metric("剩余距离", f"{remaining_distance:.0f} m")
+            
             st.metric("预计到达", remaining_str)
+            
             st.metric("电量模拟", f"{battery_remaining:.0f}%")
             st.progress(int(battery_remaining) / 100)
-
+            
             st.divider()
+            
             st.subheader("🔗 通信链路")
             st.success("✅ GCS在线")
             st.success("✅ OBC在线")
             st.success("✅ FCU在线")
-
+            
             st.divider()
+            
             if st.session_state.flight_sim_running:
                 st.info("✈️ 任务执行中...")
             elif current_index >= len(waypoints) - 1 and len(waypoints) > 0:
                 st.success("✅ 任务已完成！")
             else:
                 st.info("⏸️ 等待开始")
-
-        # 自动刷新循环（0.5 秒一次，地图平滑，面板实时更新）
+        
+        # 自动刷新
         if st.session_state.flight_sim_running:
-            time.sleep(0.5)
+            time.sleep(2)
             st.rerun()
