@@ -448,10 +448,10 @@ elif st.session_state.page == "飞行监控":
         if total_dist > 0:
             st.caption(f"总距离: {total_dist:.1f} 米")
 
-    if len(waypoints) == 0:
+        if len(waypoints) == 0:
         st.warning("⚠️ 请先点击「📐 导入当前航线」加载航线")
     else:
-        # 计算当前位置
+        # 计算当前位置（与之前相同）
         if st.session_state.flight_sim_running:
             elapsed_time = time.time() - st.session_state.flight_sim_start_time
             current_speed = st.session_state.flight_sim_speed
@@ -472,7 +472,6 @@ elif st.session_state.page == "飞行监控":
                 segment_progress = 1
                 st.session_state.flight_sim_running = False
 
-            # 检测航点变化 -> 全屏闪烁
             wp_changed = (current_index != st.session_state.flight_sim_last_wp_index)
             if wp_changed:
                 st.session_state.flight_sim_last_wp_index = current_index
@@ -521,11 +520,15 @@ elif st.session_state.page == "飞行监控":
             current_index = 0
             trigger_blink = False
 
-        # 布局
+        # ========== 布局：地图 + 数据面板 ==========
         col_map, col_panel = st.columns([3, 1])
 
         with col_map:
             st.subheader("🗺️ 实时飞行地图")
+
+            # 使用 st.empty() 占位符，减少闪烁
+            map_placeholder = st.empty()
+
             center_lat = (waypoints[0][1] + waypoints[-1][1]) / 2
             center_lng = (waypoints[0][0] + waypoints[-1][0]) / 2
             m = folium.Map(
@@ -534,12 +537,14 @@ elif st.session_state.page == "飞行监控":
                 tiles='https://webst01.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}',
                 attr='高德卫星地图'
             )
-            # 规划航线
+
+            # 规划航线（灰色虚线）
             folium.PolyLine(
                 locations=[(p[1], p[0]) for p in waypoints],
                 color='gray', weight=3, opacity=0.6, dash_array='5,5', tooltip='规划航线'
             ).add_to(m)
-            # 已飞行路径
+
+            # 已飞行路径（红色实线）
             if st.session_state.flight_sim_running and flown_distance > 0:
                 flown_pts = [waypoints[0]]
                 total_check = 0
@@ -555,6 +560,7 @@ elif st.session_state.page == "飞行监控":
                         locations=[(p[1], p[0]) for p in flown_pts],
                         color='red', weight=4, opacity=0.9, tooltip='已飞行路径'
                     ).add_to(m)
+
             # 航点标记
             for i, (lng, lat) in enumerate(waypoints):
                 if i == 0:
@@ -563,7 +569,11 @@ elif st.session_state.page == "飞行监控":
                     color, icon = 'red', 'flag-checkered'
                 else:
                     color, icon = 'blue', 'circle'
-                folium.Marker([lat, lng], popup=f'航点 {i+1}', icon=folium.Icon(color=color, icon=icon, prefix='fa')).add_to(m)
+                folium.Marker(
+                    location=[lat, lng], popup=f'航点 {i+1}',
+                    icon=folium.Icon(color=color, icon=icon, prefix='fa')
+                ).add_to(m)
+
             # 障碍物
             for obs in st.session_state.obstacles:
                 folium.Polygon(
@@ -571,19 +581,26 @@ elif st.session_state.page == "飞行监控":
                     color='orange', fill=True, fill_color='orange', fill_opacity=0.4,
                     tooltip=f"{obs['name']} (高{obs['height']}m)"
                 ).add_to(m)
+
             # 无人机当前位置
             folium.Marker(
                 location=[current_lat, current_lng],
                 popup='无人机当前位置',
                 icon=folium.Icon(color='red', icon='plane', prefix='fa')
             ).add_to(m)
+
+            # 安全半径圈
             if st.session_state.safe_radius > 0:
                 folium.Circle(
                     location=[current_lat, current_lng],
                     radius=st.session_state.safe_radius,
                     color='red', fill=True, fill_opacity=0.1, dash_array='5,5'
                 ).add_to(m)
-            st_folium(m, width=750, height=500, key="flight_monitor_map")
+
+            # 用动态 key 来更新地图
+            map_key = f"flight_map_{int(time.time())}"
+            with map_placeholder.container():
+                st_folium(m, width=750, height=500, key=map_key)
 
         with col_panel:
             # 全屏闪烁动画（到达航点时触发）
@@ -633,7 +650,7 @@ elif st.session_state.page == "飞行监控":
             else:
                 st.info("⏸️ 等待开始")
 
-        # 自动刷新（3秒一次）
+        # 自动刷新（5秒一次，减少闪烁）
         if st.session_state.flight_sim_running:
-            time.sleep(3)
+            time.sleep(5)
             st.rerun()
