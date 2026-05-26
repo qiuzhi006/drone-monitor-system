@@ -447,10 +447,12 @@ elif st.session_state.page == "飞行监控":
         st.caption(f"航点数量: {len(waypoints)}")
         if total_dist > 0:
             st.caption(f"总距离: {total_dist:.1f} 米")
-
+            
         if len(waypoints) == 0:
-                st.warning("⚠️ 请先点击「📐 导入当前航线」加载航线")
-            else:
+             st.warning("⚠️ 请先点击「📐 导入当前航线」加载航线")
+        else:
+        # ... 其他代码 ...
+       
         # 计算当前位置（与之前相同）
         if st.session_state.flight_sim_running:
             elapsed_time = time.time() - st.session_state.flight_sim_start_time
