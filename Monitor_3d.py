@@ -575,7 +575,7 @@ elif st.session_state.page == "飞行监控":
         if total_dist > 0:
             st.caption(f"总距离: {total_dist:.1f} 米")
     
-            if len(waypoints) == 0:
+     if len(waypoints) == 0:
         st.warning("⚠️ 请先点击「📐 导入当前航线」加载航线")
     else:
         # 计算当前位置（与之前相同）
