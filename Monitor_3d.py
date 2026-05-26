@@ -758,9 +758,7 @@ elif st.session_state.page == "飞行监控":
                 pitch=0,
             )
 
-            gaode_satellite = pdk.map_styles.MapboxStyle(
-                "https://webst01.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}",
-                name="gaode_satellite"
+          gaode_satellite = "https://webst01.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}"
             )
 
             st.pydeck_chart(pdk.Deck(
