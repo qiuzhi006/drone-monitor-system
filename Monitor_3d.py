@@ -749,7 +749,7 @@ elif st.session_state.page == "飞行监控":
                 stroked=True,
             )
             
-           layers = [polygon_layer, plan_layer, flown_layer, wp_layer, drone_layer, circle_layer]
+          layers = [polygon_layer, plan_layer, flown_layer, wp_layer, drone_layer, circle_layer]
 
             view_state = pdk.ViewState(
                 latitude=(waypoints[0][1] + waypoints[-1][1]) / 2,
