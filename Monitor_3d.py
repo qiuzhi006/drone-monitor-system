@@ -106,6 +106,25 @@ def perpendicular_point(px, py, x1, y1, x2, y2, offset_meters, direction='left')
     delta_lat = offset_meters * perp_y / meters_per_deg_lat
 
     return px + delta_lng, py + delta_lat
+
+# ==================== 全局通用函数（修复：移到全局作用域）====================
+def calculate_distances(waypoints):
+    """计算航线总距离和各航段距离（全局可用）"""
+    total = 0
+    segment_distances = []
+    for i in range(len(waypoints) - 1):
+        p1 = waypoints[i]
+        p2 = waypoints[i + 1]
+        lat1_rad = math.radians(p1[1])
+        lat2_rad = math.radians(p2[1])
+        dlat = math.radians(p2[1] - p1[1])
+        dlng = math.radians(p2[0] - p1[0])
+        a_val = math.sin(dlat/2)**2 + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(dlng/2)**2
+        c_val = 2 * math.atan2(math.sqrt(a_val), math.sqrt(1-a_val))
+        distance = 6371000 * c_val
+        segment_distances.append(distance)
+        total += distance
+    return total, segment_distances
     
 def calculate_avoidance_waypoints(start, end, obstacles, flight_height, safe_radius, strategy, bypass_offset):
     threatening = []
@@ -446,7 +465,7 @@ if st.session_state.page == "航线规划":
         new_obs_name = st.text_input("障碍物名称", placeholder="例如：新建筑")
         new_obs_height = st.number_input("高度 (米)", min_value=0, max_value=200, value=30)
         
-        if st.button("✅ 添加已圈选的多边形"):
+        if st.button("✅ 添加已圈选的多边形", use_container_width=True):
             if st.session_state.drawn_polygon and len(st.session_state.drawn_polygon) >= 3:
                 if new_obs_name:
                     st.session_state.obstacles.append({
@@ -481,7 +500,7 @@ if st.session_state.page == "航线规划":
         start, end, st.session_state.obstacles, flight_height, safe_radius, strategy, bypass_offset
     )
 
-    # 生成航线规划日志
+    # 生成航线规划日志（现在可以正常调用全局函数了）
     if st.button("📝 生成航线规划日志", use_container_width=True):
         clear_all_logs()
         total_dist, _ = calculate_distances(waypoints)
@@ -493,7 +512,7 @@ if st.session_state.page == "航线规划":
         add_gcs_to_fcu_log("OBC→FCU: MISSION_ITEM")
         add_fcu_to_gcs_log("FCU→OBC: MISSION_ACK")
         add_fcu_to_gcs_log("OBC→GCS: MISSION_ACK")
-        st.success("航线规划日志已生成")
+        st.success("✅ 航线规划日志已生成，请切换到飞行监控页面查看")
 
     m_complete = create_complete_map(
         lat_a_display, lon_a_display, lat_b_display, lon_b_display,
@@ -511,24 +530,6 @@ if st.session_state.page == "航线规划":
 # ==================== 飞行监控页面 ====================
 elif st.session_state.page == "飞行监控":
     st.title("📡 飞行实时画面 - 任务执行监控")
-    
-    # 计算总距离和各航段距离
-    def calculate_distances(waypoints):
-        total = 0
-        segment_distances = []
-        for i in range(len(waypoints) - 1):
-            p1 = waypoints[i]
-            p2 = waypoints[i + 1]
-            lat1_rad = math.radians(p1[1])
-            lat2_rad = math.radians(p2[1])
-            dlat = math.radians(p2[1] - p1[1])
-            dlng = math.radians(p2[0] - p1[0])
-            a_val = math.sin(dlat/2)**2 + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(dlng/2)**2
-            c_val = 2 * math.atan2(math.sqrt(a_val), math.sqrt(1-a_val))
-            distance = 6371000 * c_val
-            segment_distances.append(distance)
-            total += distance
-        return total, segment_distances
     
     # 侧边栏控制
     with st.sidebar:
@@ -560,7 +561,7 @@ elif st.session_state.page == "飞行监控":
             add_gcs_to_fcu_log("OBC→FCU: MISSION_ITEM")
             add_fcu_to_gcs_log("FCU→OBC: MISSION_ACK")
             add_fcu_to_gcs_log("OBC→GCS: MISSION_ACK")
-            st.success(f"航线已导入，共 {len(waypoints)} 个航点，总距离 {total_dist:.1f} 米")
+            st.success(f"✅ 航线已导入，共 {len(waypoints)} 个航点，总距离 {total_dist:.1f} 米")
             st.rerun()
         
         total_dist = st.session_state.flight_sim_total_distance
@@ -683,7 +684,7 @@ elif st.session_state.page == "飞行监控":
     
     st.divider()
     
-    # ==================== 核心修复：飞行模拟与地图渲染 ====================
+    # ==================== 飞行模拟与地图渲染 ====================
     if len(waypoints) == 0:
         st.warning("⚠️ 请先在侧边栏点击「📐 导入当前航线」按钮，加载航线规划结果")
     else:
@@ -769,11 +770,11 @@ elif st.session_state.page == "飞行监控":
         with col_map:
             st.subheader("🗺️ 实时飞行地图")
             
-            # 修复：地图中心坐标在waypoints不为空时才定义
+            # 地图中心坐标
             center_lat = (waypoints[0][1] + waypoints[-1][1]) / 2
             center_lon = (waypoints[0][0] + waypoints[-1][0]) / 2
             
-            # 创建地图（添加备用瓦片源，防止高德加载失败）
+            # 创建地图（添加备用瓦片源）
             try:
                 m = folium.Map(
                     location=[center_lat, center_lon],
@@ -871,9 +872,7 @@ elif st.session_state.page == "飞行监控":
                     dash_array='5,5'
                 ).add_to(m)
             
-            # 使用st.empty容器实现平滑刷新
-            map_container = st.empty()
-            map_container = st_folium(m, width=750, height=500, key=f"flight_map_{time.time()}")
+            st_folium(m, width=750, height=500, key=f"flight_map_{time.time()}")
         
         with col_panel:
             st.subheader("📊 飞行数据")
@@ -947,7 +946,7 @@ elif st.session_state.page == "飞行监控":
                 for log in st.session_state.comm_logs_fcu_to_gcs:
                     st.code(log, language="plaintext")
         
-        # 优化自动刷新：使用st.rerun()但添加异常处理
+        # 自动刷新
         if st.session_state.flight_sim_running:
-            time.sleep(1.5)  # 降低刷新频率，减少卡顿
+            time.sleep(1.5)
             st.rerun()
