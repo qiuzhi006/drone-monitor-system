@@ -210,7 +210,72 @@ def calculate_avoidance_waypoints(start, end, obstacles, flight_height, safe_rad
         waypoints = [start, end]
     
     return waypoints
-# ==================== 初始化 Session State ====================
+
+# ==================== 新增：通信链路拓扑组件 ====================
+def show_communication_panel():
+    """显示通信链路拓扑与数据流状态面板"""
+    
+    st.subheader("🔗 通信链路拓扑")
+    
+    # 三设备状态卡片
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.info("**🖥 GCS 地面站**")
+        st.caption("192.168.1.100")
+        st.caption("UDP:14550")
+        st.success("✅ 在线")
+    with col2:
+        st.warning("**💻 OBC 机载计算机**")
+        st.caption("Raspberry Pi 4")
+        st.caption("MAVLink")
+        st.success("✅ 在线")
+    with col3:
+        st.success("**🚁 FCU 飞控**")
+        st.caption("PX4 / ArduPilot")
+        st.caption("PWM/SPI")
+        st.success("✅ 在线")
+    
+    # 数据流方向
+    st.markdown("**📨 数据流方向**")
+    st.caption("📤 上行: GCS → OBC → FCU (任务上传/模式切换)")
+    st.caption("📥 下行: FCU → OBC → GCS (遥测/航点上报)")
+    
+    st.divider()
+    
+    # 链路统计指标
+    st.subheader("📊 链路统计")
+    metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
+    metric_col1.metric("GCS → OBC", "正常", "✅")
+    metric_col2.metric("OBC → FCU", "正常", "✅")
+    metric_col3.metric("延迟", "~25 ms", "稳定")
+    metric_col4.metric("丢包率", "0.1%", "低")
+
+
+def show_mission_log():
+    """显示任务通信日志"""
+    st.subheader("📋 任务通信日志")
+    
+    # 通信日志数据（基于之前的分析）
+    log_data = pd.DataFrame([
+        ("15:03:08", "FCU→OBC→GCS", "ACK", "Mode: AUTO"),
+        ("15:03:10", "FCU→OBC→GCS", "WP_REACHED", "#1"),
+        ("15:03:17", "FCU→OBC→GCS", "WP_REACHED", "#2"),
+        ("15:03:19", "FCU→OBC→GCS", "WP_REACHED", "#3"),
+        ("15:03:20", "FCU→OBC→GCS", "WP_REACHED", "#4"),
+        ("15:03:23", "FCU→OBC→GCS", "WP_REACHED", "#5"),
+        ("15:03:44", "FCU→OBC→GCS", "WP_REACHED", "#6"),
+        ("15:03:46", "FCU→OBC→GCS", "WP_REACHED", "#7"),
+        ("15:03:47", "FCU→OBC→GCS", "WP_REACHED", "#8"),
+        ("15:03:51", "FCU→OBC→GCS", "WP_REACHED", "#9"),
+        ("15:03:51", "FCU→OBC→GCS", "MISSION_COMPLETE", ""),
+    ], columns=["时间戳", "方向", "消息类型", "附加信息"])
+    
+    st.dataframe(log_data, use_container_width=True, hide_index=True)
+    
+    # 任务摘要
+    st.caption("📊 任务摘要：9个航点 | 总耗时43秒 | 最长航段 #5→#6 (21秒)")
+    st.success("✅ AUTO模式工作正常，通信链路稳定，无丢包")
+
 # ==================== 初始化 Session State ====================
 if "heartbeats" not in st.session_state:
     st.session_state.heartbeats = []
@@ -497,6 +562,7 @@ if st.session_state.page == "航线规划":
             coords = geo.get("coordinates", [])
             if coords:
                 st.session_state.drawn_polygon = coords[0][:-1]
+
 # ==================== 飞行监控页面 ====================
 elif st.session_state.page == "飞行监控":
     st.title("📡 飞行实时画面 - 任务执行监控")
@@ -505,7 +571,6 @@ elif st.session_state.page == "飞行监控":
     with st.expander("📡 通信链路状态与任务日志", expanded=False):
         show_communication_panel()
         show_mission_log()
-    
     
     # 计算总距离和各航段距离
     def calculate_distances(waypoints):
@@ -586,7 +651,7 @@ elif st.session_state.page == "飞行监控":
         if total_dist > 0:
             st.caption(f"总距离: {total_dist:.1f} 米")
     
-        # 主界面
+    # 主界面
     if len(waypoints) == 0:
         st.warning("⚠️ 请先在侧边栏点击「📐 导入当前航线」按钮，加载航线规划结果")
     else:
@@ -617,264 +682,4 @@ elif st.session_state.page == "飞行监控":
             p1 = waypoints[current_index]
             p2_index = min(current_index + 1, len(waypoints) - 1)
             p2 = waypoints[p2_index]
-            current_lng = p1[0] + (p2[0] - p1[0]) * segment_progress
-            current_lat = p1[1] + (p2[1] - p1[1]) * segment_progress
-            
-            remaining_distance = max(0, total_dist - flown_distance)
-            remaining_time = remaining_distance / current_speed if current_speed > 0 else 9999
-            
-            total_battery_time = 1800
-            battery_remaining = max(0, 100 * (1 - min(elapsed_time, total_battery_time) / total_battery_time))
-            
-            hours = int(elapsed_time // 3600)
-            minutes = int((elapsed_time % 3600) // 60)
-            seconds = int(elapsed_time % 60)
-            elapsed_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}" if hours > 0 else f"{minutes:02d}:{seconds:02d}"
-            
-            if remaining_time >= 3600:
-                rem_hours = int(remaining_time // 3600)
-                rem_minutes = int((remaining_time % 3600) // 60)
-                rem_seconds = int(remaining_time % 60)
-                remaining_str = f"{rem_hours:02d}:{rem_minutes:02d}:{rem_seconds:02d}"
-            elif remaining_time >= 0:
-                rem_minutes = int(remaining_time // 60)
-                rem_seconds = int(remaining_time % 60)
-                remaining_str = f"{rem_minutes:02d}:{rem_seconds:02d}"
-            else:
-                remaining_str = "00:00"
-            
-            arrival_time = datetime.now() + timedelta(seconds=remaining_time)
-            arrival_str = arrival_time.strftime("%H:%M:%S")
-        else:
-            current_lng = waypoints[0][0]
-            current_lat = waypoints[0][1]
-            flown_distance = 0
-            remaining_distance = total_dist
-            current_speed = 0
-            elapsed_str = "00:00"
-            remaining_str = "00:00"
-            battery_remaining = 100
-            arrival_str = "--:--:--"
-            current_index = 0
-        
-        # 布局：左侧地图，右侧面板
-        col_map, col_panel = st.columns([3, 1])
-        
-        with col_map:
-            st.subheader("🗺️ 实时飞行地图")
-            
-            center_lat = (waypoints[0][1] + waypoints[-1][1]) / 2
-            center_lng = (waypoints[0][0] + waypoints[-1][0]) / 2
-            
-            m = folium.Map(
-                location=[center_lat, center_lng],
-                zoom_start=17,
-                tiles='https://webst01.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}',
-                attr='高德卫星地图',
-                height=500
-            )
-            
-            # 规划航线
-            folium.PolyLine(
-                locations=[(p[1], p[0]) for p in waypoints],
-                color='gray',
-                weight=3,
-                opacity=0.6,
-                dash_array='5,5',
-                tooltip='规划航线'
-            ).add_to(m)
-            
-            # 已飞行路径
-            if st.session_state.flight_sim_running and flown_distance > 0:
-                flown_waypoints = [waypoints[0]]
-                total_check = 0
-                for i, seg_dist in enumerate(seg_dists):
-                    total_check += seg_dist
-                    if total_check <= flown_distance:
-                        flown_waypoints.append(waypoints[i + 1])
-                    else:
-                        flown_waypoints.append((current_lng, current_lat))
-                        break
-                if len(flown_waypoints) >= 2:
-                    folium.PolyLine(
-                        locations=[(p[1], p[0]) for p in flown_waypoints],
-                        color='red',
-                        weight=4,
-                        opacity=0.9,
-                        tooltip='已飞行路径'
-                    ).add_to(m)
-            
-            # 航点标记
-            for i, (lng, lat) in enumerate(waypoints):
-                if i == 0:
-                    color = 'green'
-                    icon_name = 'play'
-                elif i == len(waypoints) - 1:
-                    color = 'red'
-                    icon_name = 'flag-checkered'
-                else:
-                    color = 'blue'
-                    icon_name = 'circle'
-                folium.Marker(
-                    location=[lat, lng],
-                    popup=f'航点 {i+1}',
-                    icon=folium.Icon(color=color, icon=icon_name, prefix='fa')
-                ).add_to(m)
-            
-            # 障碍物
-            for obs in st.session_state.obstacles:
-                polygon_coords = [[coord[1], coord[0]] for coord in obs["coords"]]
-                folium.Polygon(
-                    locations=polygon_coords,
-                    color='orange',
-                    fill=True,
-                    fill_color='orange',
-                    fill_opacity=0.4,
-                    weight=2,
-                    tooltip=f"{obs['name']} (高{obs['height']}m)"
-                ).add_to(m)
-            
-            # 无人机当前位置
-            folium.Marker(
-                location=[current_lat, current_lng],
-                popup='无人机当前位置',
-                icon=folium.Icon(color='red', icon='plane', prefix='fa'),
-                z_index_offset=1000
-            ).add_to(m)
-            
-            # 安全半径圈
-            if st.session_state.safe_radius > 0:
-                folium.Circle(
-                    location=[current_lat, current_lng],
-                    radius=st.session_state.safe_radius,
-                    color='red',
-                    fill=True,
-                    fill_opacity=0.1,
-                    weight=1,
-                    dash_array='5,5'
-                ).add_to(m)
-            
-            st_folium(m, width=750, height=500, key="flight_monitor_map")
-        
-        with col_panel:
-            st.subheader("📊 飞行数据")
-            
-            total_waypoints = len(waypoints)
-            completed_waypoints = min(current_index + 1, total_waypoints) if st.session_state.flight_sim_running else 0
-            st.metric("当前航点", f"{completed_waypoints}/{total_waypoints}")
-            
-            display_speed = current_speed if st.session_state.flight_sim_running else 0
-            st.metric("飞行速度", f"{display_speed:.1f} m/s")
-            
-            st.metric("已用时间", elapsed_str)
-            
-            st.metric("剩余距离", f"{remaining_distance:.0f} m")
-            
-            st.metric("预计到达", remaining_str)
-            
-            st.metric("电量模拟", f"{battery_remaining:.0f}%")
-            st.progress(int(battery_remaining) / 100)
-            
-            st.divider()
-            
-            st.subheader("🔗 通信链路")
-            st.success("✅ GCS在线")
-            st.success("✅ OBC在线")
-            st.success("✅ FCU在线")
-            
-            st.divider()
-            
-            if st.session_state.flight_sim_running:
-                st.info("✈️ 任务执行中...")
-            elif current_index >= len(waypoints) - 1 and len(waypoints) > 0:
-                st.success("✅ 任务已完成！")
-            else:
-                st.info("⏸️ 等待开始")
-        
-        # 自动刷新
-        if st.session_state.flight_sim_running:
-            time.sleep(2)
-            st.rerun()
-            # ==================== 新增：通信链路拓扑组件 ====================
-def show_communication_panel():
-    """显示通信链路拓扑与数据流状态面板"""
-    
-    st.subheader("🔗 通信链路拓扑")
-    
-    # 三设备状态卡片
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.info("**🖥 GCS 地面站**")
-        st.caption("192.168.1.100")
-        st.caption("UDP:14550")
-        st.success("✅ 在线")
-    with col2:
-        st.warning("**💻 OBC 机载计算机**")
-        st.caption("Raspberry Pi 4")
-        st.caption("MAVLink")
-        st.success("✅ 在线")
-    with col3:
-        st.success("**🚁 FCU 飞控**")
-        st.caption("PX4 / ArduPilot")
-        st.caption("PWM/SPI")
-        st.success("✅ 在线")
-    
-    # 数据流方向
-    st.markdown("**📨 数据流方向**")
-    st.caption("📤 上行: GCS → OBC → FCU (任务上传/模式切换)")
-    st.caption("📥 下行: FCU → OBC → GCS (遥测/航点上报)")
-    
-    st.divider()
-    
-    # 链路统计指标
-    st.subheader("📊 链路统计")
-    metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
-    metric_col1.metric("GCS → OBC", "正常", "✅")
-    metric_col2.metric("OBC → FCU", "正常", "✅")
-    metric_col3.metric("延迟", "~25 ms", "稳定")
-    metric_col4.metric("丢包率", "0.1%", "低")
-
-
-def show_mission_log():
-    """显示任务通信日志"""
-    st.subheader("📋 任务通信日志")
-    
-    # 通信日志数据（基于之前的分析）
-    log_data = pd.DataFrame([
-        ("15:03:08", "FCU→OBC→GCS", "ACK", "Mode: AUTO"),
-        ("15:03:10", "FCU→OBC→GCS", "WP_REACHED", "#1"),
-        ("15:03:17", "FCU→OBC→GCS", "WP_REACHED", "#2"),
-        ("15:03:19", "FCU→OBC→GCS", "WP_REACHED", "#3"),
-        ("15:03:20", "FCU→OBC→GCS", "WP_REACHED", "#4"),
-        ("15:03:23", "FCU→OBC→GCS", "WP_REACHED", "#5"),
-        ("15:03:44", "FCU→OBC→GCS", "WP_REACHED", "#6"),
-        ("15:03:46", "FCU→OBC→GCS", "WP_REACHED", "#7"),
-        ("15:03:47", "FCU→OBC→GCS", "WP_REACHED", "#8"),
-        ("15:03:51", "FCU→OBC→GCS", "WP_REACHED", "#9"),
-        ("15:03:51", "FCU→OBC→GCS", "MISSION_COMPLETE", ""),
-    ], columns=["时间戳", "方向", "消息类型", "附加信息"])
-    
-    st.dataframe(log_data, use_container_width=True, hide_index=True)
-    
-    # 任务摘要
-    st.caption("📊 任务摘要：9个航点 | 总耗时43秒 | 最长航段 #5→#6 (21秒)")
-    st.success("✅ AUTO模式工作正常，通信链路稳定，无丢包")
-
-
-# ==================== 在飞行监控页面添加通信面板的调用 ====================
-# 注意：需要在你的飞行监控页面代码中找到合适位置添加以下调用
-
-# 方式1：在飞行监控页面的 st.title 之后添加一个可折叠的扩展面板
-# 将下面这段代码插入到飞行监控页面中 st.title 的下一行：
-#
-# with st.expander("📡 通信链路状态与任务日志", expanded=False):
-#     show_communication_panel()
-#     show_mission_log()
-
-
-# ==================== 在航线规划页面添加通信面板的调用 ====================
-# 方式2：在航线规划页面的 st.title 之后添加一个可折叠的扩展面板
-# 将下面这段代码插入到航线规划页面中 st.title 的下一行：
-#
-# with st.expander("📡 通信链路状态", expanded=False):
-#     show_mission_log()
+            current_lng = p1[0] + (p2
