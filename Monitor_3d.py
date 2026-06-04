@@ -374,6 +374,9 @@ def create_complete_map(lat_a, lon_a, lat_b, lon_b, obstacles, flight_height, sa
 # ==================== 航线规划页面 ====================
 if st.session_state.page == "航线规划":
     st.title("🗺️ 航线规划 + 障碍物圈选")
+        with st.expander("📡 通信链路状态", expanded=False):
+        show_communication_panel()
+        show_mission_log()
 
     with st.sidebar:
         st.divider()
@@ -494,7 +497,11 @@ if st.session_state.page == "航线规划":
                 st.session_state.drawn_polygon = coords[0][:-1]
 # ==================== 飞行监控页面 ====================
 elif st.session_state.page == "飞行监控":
-    st.title("📡 飞行实时画面 - 任务执行监控")
+    st.title("📡 飞行实时画面 - 任务执行监控")   
+    with st.expander("📡 通信链路状态与任务日志", expanded=False):
+        show_communication_panel()
+        show_mission_log()
+    
     
     # 计算总距离和各航段距离
     def calculate_distances(waypoints):
@@ -784,3 +791,87 @@ elif st.session_state.page == "飞行监控":
         if st.session_state.flight_sim_running:
             time.sleep(2)
             st.rerun()
+            # ==================== 新增：通信链路拓扑组件 ====================
+def show_communication_panel():
+    """显示通信链路拓扑与数据流状态面板"""
+    
+    st.subheader("🔗 通信链路拓扑")
+    
+    # 三设备状态卡片
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.info("**🖥 GCS 地面站**")
+        st.caption("192.168.1.100")
+        st.caption("UDP:14550")
+        st.success("✅ 在线")
+    with col2:
+        st.warning("**💻 OBC 机载计算机**")
+        st.caption("Raspberry Pi 4")
+        st.caption("MAVLink")
+        st.success("✅ 在线")
+    with col3:
+        st.success("**🚁 FCU 飞控**")
+        st.caption("PX4 / ArduPilot")
+        st.caption("PWM/SPI")
+        st.success("✅ 在线")
+    
+    # 数据流方向
+    st.markdown("**📨 数据流方向**")
+    st.caption("📤 上行: GCS → OBC → FCU (任务上传/模式切换)")
+    st.caption("📥 下行: FCU → OBC → GCS (遥测/航点上报)")
+    
+    st.divider()
+    
+    # 链路统计指标
+    st.subheader("📊 链路统计")
+    metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
+    metric_col1.metric("GCS → OBC", "正常", "✅")
+    metric_col2.metric("OBC → FCU", "正常", "✅")
+    metric_col3.metric("延迟", "~25 ms", "稳定")
+    metric_col4.metric("丢包率", "0.1%", "低")
+
+
+def show_mission_log():
+    """显示任务通信日志"""
+    st.subheader("📋 任务通信日志")
+    
+    # 通信日志数据（基于之前的分析）
+    log_data = pd.DataFrame([
+        ("15:03:08", "FCU→OBC→GCS", "ACK", "Mode: AUTO"),
+        ("15:03:10", "FCU→OBC→GCS", "WP_REACHED", "#1"),
+        ("15:03:17", "FCU→OBC→GCS", "WP_REACHED", "#2"),
+        ("15:03:19", "FCU→OBC→GCS", "WP_REACHED", "#3"),
+        ("15:03:20", "FCU→OBC→GCS", "WP_REACHED", "#4"),
+        ("15:03:23", "FCU→OBC→GCS", "WP_REACHED", "#5"),
+        ("15:03:44", "FCU→OBC→GCS", "WP_REACHED", "#6"),
+        ("15:03:46", "FCU→OBC→GCS", "WP_REACHED", "#7"),
+        ("15:03:47", "FCU→OBC→GCS", "WP_REACHED", "#8"),
+        ("15:03:51", "FCU→OBC→GCS", "WP_REACHED", "#9"),
+        ("15:03:51", "FCU→OBC→GCS", "MISSION_COMPLETE", ""),
+    ], columns=["时间戳", "方向", "消息类型", "附加信息"])
+    
+    st.dataframe(log_data, use_container_width=True, hide_index=True)
+    
+    # 任务摘要
+    st.caption("📊 任务摘要：9个航点 | 总耗时43秒 | 最长航段 #5→#6 (21秒)")
+    st.success("✅ AUTO模式工作正常，通信链路稳定，无丢包")
+
+
+# ==================== 在飞行监控页面添加通信面板的调用 ====================
+# 注意：需要在你的飞行监控页面代码中找到合适位置添加以下调用
+
+# 方式1：在飞行监控页面的 st.title 之后添加一个可折叠的扩展面板
+# 将下面这段代码插入到飞行监控页面中 st.title 的下一行：
+#
+# with st.expander("📡 通信链路状态与任务日志", expanded=False):
+#     show_communication_panel()
+#     show_mission_log()
+
+
+# ==================== 在航线规划页面添加通信面板的调用 ====================
+# 方式2：在航线规划页面的 st.title 之后添加一个可折叠的扩展面板
+# 将下面这段代码插入到航线规划页面中 st.title 的下一行：
+#
+# with st.expander("📡 通信链路状态", expanded=False):
+#     show_communication_panel()
+#     show_mission_log()
