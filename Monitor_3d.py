@@ -210,7 +210,7 @@ def calculate_avoidance_waypoints(start, end, obstacles, flight_height, safe_rad
         waypoints = [start, end]
     
     return waypoints
-# ==================== 初始化 Session State ====================
+
 # ==================== 初始化 Session State ====================
 if "heartbeats" not in st.session_state:
     st.session_state.heartbeats = []
@@ -257,6 +257,14 @@ if "flight_sim_segment_distances" not in st.session_state:
 if "flight_sim_last_wp_index" not in st.session_state:
     st.session_state.flight_sim_last_wp_index = -1
 
+# 通信日志相关
+if "comm_logs_business" not in st.session_state:
+    st.session_state.comm_logs_business = []
+if "comm_logs_gcs_to_fcu" not in st.session_state:
+    st.session_state.comm_logs_gcs_to_fcu = []
+if "comm_logs_fcu_to_gcs" not in st.session_state:
+    st.session_state.comm_logs_fcu_to_gcs = []
+
 CONFIG_FILE = "obstacle_config.json"
 
 def load_obstacles():
@@ -277,6 +285,33 @@ def save_obstacles():
         st.success("障碍物配置已保存到文件")
     except Exception as e:
         st.error(f"保存失败: {e}")
+
+# ==================== 通信日志辅助函数 ====================
+def add_business_log(message, source="OBC 内部", color="green"):
+    """添加业务流程日志"""
+    timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+    st.session_state.comm_logs_business.append({
+        "timestamp": timestamp,
+        "message": message,
+        "source": source,
+        "color": color
+    })
+
+def add_gcs_to_fcu_log(message):
+    """添加GCS→OBC→FCU方向日志"""
+    timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+    st.session_state.comm_logs_gcs_to_fcu.append(f"[{timestamp}] {message}")
+
+def add_fcu_to_gcs_log(message):
+    """添加FCU→OBC→GCS方向日志"""
+    timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+    st.session_state.comm_logs_fcu_to_gcs.append(f"[{timestamp}] {message}")
+
+def clear_all_logs():
+    """清空所有通信日志"""
+    st.session_state.comm_logs_business = []
+    st.session_state.comm_logs_gcs_to_fcu = []
+    st.session_state.comm_logs_fcu_to_gcs = []
 
 # ==================== 侧边栏导航 ====================
 with st.sidebar:
@@ -480,6 +515,19 @@ if st.session_state.page == "航线规划":
         start, end, st.session_state.obstacles, flight_height, safe_radius, strategy, bypass_offset
     )
 
+    # 记录航线规划日志
+    if st.button("📝 生成航线规划日志", use_container_width=True):
+        clear_all_logs()
+        add_business_log(f"航线规划完成 | 类型: horizontal | 航点数: {len(waypoints)} | 路径长度: {st.session_state.flight_sim_total_distance:.1f}m", color="green")
+        add_business_log(f"开始航线规划 | 算法: A* | 障碍物数量: {len(st.session_state.obstacles)}", color="gray")
+        add_business_log(f"导航目标 | 起点: ({lat_a_display:.6f}, {lon_a_display:.6f}), 终点: ({lat_b_display:.6f}, {lon_b_display:.6f}), 目标高度: {flight_height}m", source="GCS → OBC", color="blue")
+        add_gcs_to_fcu_log("GCS→OBC: MISSION_UPLOAD")
+        add_gcs_to_fcu_log("OBC→FCU: MISSION_COUNT")
+        add_gcs_to_fcu_log("OBC→FCU: MISSION_ITEM")
+        add_fcu_to_gcs_log("FCU→OBC: MISSION_ACK")
+        add_fcu_to_gcs_log("OBC→GCS: MISSION_ACK")
+        st.success("航线规划日志已生成")
+
     m_complete = create_complete_map(
         lat_a_display, lon_a_display, lat_b_display, lon_b_display,
         st.session_state.obstacles, flight_height, safe_radius, waypoints
@@ -492,6 +540,7 @@ if st.session_state.page == "航线规划":
             coords = geo.get("coordinates", [])
             if coords:
                 st.session_state.drawn_polygon = coords[0][:-1]
+
 # ==================== 飞行监控页面 ====================
 elif st.session_state.page == "飞行监控":
     st.title("📡 飞行实时画面 - 任务执行监控")
@@ -534,6 +583,16 @@ elif st.session_state.page == "飞行监控":
             st.session_state.flight_sim_current_index = 0
             st.session_state.flight_sim_running = False
             st.session_state.flight_sim_start_time = None
+            st.session_state.flight_sim_last_wp_index = -1
+            clear_all_logs()
+            add_business_log(f"航线规划完成 | 类型: horizontal | 航点数: {len(waypoints)} | 路径长度: {total_dist:.1f}m", color="green")
+            add_business_log(f"开始航线规划 | 算法: A* | 障碍物数量: {len(st.session_state.obstacles)}", color="gray")
+            add_business_log(f"导航目标 | 起点: ({start[1]:.6f}, {start[0]:.6f}), 终点: ({end[1]:.6f}, {end[0]:.6f}), 目标高度: {st.session_state.flight_height}m", source="GCS → OBC", color="blue")
+            add_gcs_to_fcu_log("GCS→OBC: MISSION_UPLOAD")
+            add_gcs_to_fcu_log("OBC→FCU: MISSION_COUNT")
+            add_gcs_to_fcu_log("OBC→FCU: MISSION_ITEM")
+            add_fcu_to_gcs_log("FCU→OBC: MISSION_ACK")
+            add_fcu_to_gcs_log("OBC→GCS: MISSION_ACK")
             st.success(f"航线已导入，共 {len(waypoints)} 个航点，总距离 {total_dist:.1f} 米")
         
         total_dist = st.session_state.flight_sim_total_distance
@@ -553,16 +612,20 @@ elif st.session_state.page == "飞行监控":
                 st.session_state.flight_sim_running = True
                 if st.session_state.flight_sim_start_time is None:
                     st.session_state.flight_sim_start_time = time.time()
+                add_fcu_to_gcs_log("FCU→OBC→GCS: ACK | Mode: AUTO")
                 st.rerun()
         with col2:
             if st.button("⏹️ 停止任务", use_container_width=True):
                 st.session_state.flight_sim_running = False
+                add_fcu_to_gcs_log("FCU→OBC→GCS: ACK | Mode: MANUAL")
                 st.rerun()
         
         if st.button("🔄 重置任务", use_container_width=True):
             st.session_state.flight_sim_running = False
             st.session_state.flight_sim_start_time = None
             st.session_state.flight_sim_current_index = 0
+            st.session_state.flight_sim_last_wp_index = -1
+            clear_all_logs()
             st.rerun()
         
         st.divider()
@@ -575,7 +638,85 @@ elif st.session_state.page == "飞行监控":
         if total_dist > 0:
             st.caption(f"总距离: {total_dist:.1f} 米")
     
-        # 主界面
+    # ==================== 通信链路拓扑与数据流 ====================
+    st.subheader("📶 通信链路拓扑与数据流")
+    
+    # 在线状态
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.success("✅ GCS 在线")
+    with col2:
+        st.success("✅ OBC 在线")
+    with col3:
+        st.success("✅ FCU 在线")
+    
+    st.divider()
+    
+    # 链路拓扑图
+    col_gcs, col_conn1, col_obc, col_conn2, col_fcu = st.columns([2, 1, 2, 1, 2])
+    
+    with col_gcs:
+        st.markdown("""
+        <div style="border: 2px solid #4285F4; border-radius: 10px; padding: 20px; text-align: center; background-color: #E8F0FE;">
+            <div style="font-size: 24px; margin-bottom: 10px;">🖥️</div>
+            <div style="font-size: 18px; font-weight: bold;">GCS</div>
+            <div style="font-size: 14px; color: #666;">地面站</div>
+            <div style="font-size: 12px; color: #666;">192.168.1.100</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col_conn1:
+        st.markdown("""
+        <div style="text-align: center; margin-top: 40px;">
+            <div style="font-size: 20px;">⬆️⬇️</div>
+            <div style="font-size: 14px; font-weight: bold;">UDP:14550</div>
+            <div style="color: green; font-size: 12px;">● 已连接</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col_obc:
+        st.markdown("""
+        <div style="border: 2px solid #F5A623; border-radius: 10px; padding: 20px; text-align: center; background-color: #FFF3E0;">
+            <div style="font-size: 24px; margin-bottom: 10px;">🧠</div>
+            <div style="font-size: 18px; font-weight: bold;">OBC</div>
+            <div style="font-size: 14px; color: #666;">机载计算机</div>
+            <div style="font-size: 12px; color: #666;">Raspberry Pi 4</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col_conn2:
+        st.markdown("""
+        <div style="text-align: center; margin-top: 40px;">
+            <div style="font-size: 20px;">⬆️⬇️</div>
+            <div style="font-size: 14px; font-weight: bold;">MAVLink</div>
+            <div style="color: green; font-size: 12px;">● 已连接</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col_fcu:
+        st.markdown("""
+        <div style="border: 2px solid #9C27B0; border-radius: 10px; padding: 20px; text-align: center; background-color: #F3E5F5;">
+            <div style="font-size: 24px; margin-bottom: 10px;">⚙️</div>
+            <div style="font-size: 18px; font-weight: bold;">FCU</div>
+            <div style="font-size: 14px; color: #666;">飞控</div>
+            <div style="font-size: 12px; color: #666;">PX4 / ArduPilot</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # 链路统计
+    st.markdown("""
+    <div style="margin-top: 15px; padding: 10px; background-color: #F5F5F5; border-radius: 5px;">
+        <span style="font-weight: bold;">📊 链路统计:</span>
+        <span style="margin-left: 20px;">GCS↔OBC: 正常</span>
+        <span style="margin-left: 20px;">OBC↔FCU: 正常</span>
+        <span style="margin-left: 20px;">延迟: ~25ms</span>
+        <span style="margin-left: 20px;">丢包率: 0.1%</span>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.divider()
+    
+    # 主界面
     if len(waypoints) == 0:
         st.warning("⚠️ 请先在侧边栏点击「📐 导入当前航线」按钮，加载航线规划结果")
     else:
@@ -634,6 +775,16 @@ elif st.session_state.page == "飞行监控":
             
             arrival_time = datetime.now() + timedelta(seconds=remaining_time)
             arrival_str = arrival_time.strftime("%H:%M:%S")
+            
+            # 检测航点到达并生成日志
+            if current_index > st.session_state.flight_sim_last_wp_index:
+                st.session_state.flight_sim_last_wp_index = current_index
+                add_fcu_to_gcs_log(f"FCU→OBC→GCS: WP_REACHED #{current_index}")
+                
+                # 任务完成检测
+                if current_index >= len(waypoints) - 1:
+                    add_fcu_to_gcs_log("FCU→OBC→GCS: MISSION_COMPLETE")
+                    add_business_log("任务执行完成", color="green")
         else:
             current_lng = waypoints[0][0]
             current_lat = waypoints[0][1]
@@ -656,7 +807,7 @@ elif st.session_state.page == "飞行监控":
             center_lng = (waypoints[0][0] + waypoints[-1][0]) / 2
             
             m = folium.Map(
-                location=[center_lat, center_lng],
+                location=[center_lat, center_lon],
                 zoom_start=17,
                 tiles='https://webst01.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}',
                 attr='高德卫星地图',
@@ -779,6 +930,43 @@ elif st.session_state.page == "飞行监控":
                 st.success("✅ 任务已完成！")
             else:
                 st.info("⏸️ 等待开始")
+        
+        st.divider()
+        
+        # ==================== 通信日志 ====================
+        st.subheader("📝 通信日志")
+        
+        tab1, tab2, tab3 = st.tabs(["📋 业务流程", "⬇️ GCS→OBC→FCU", "⬆️ FCU→OBC→GCS"])
+        
+        with tab1:
+            business_log_container = st.container(height=300)
+            with business_log_container:
+                for log in st.session_state.comm_logs_business:
+                    color_class = {
+                        "green": "background-color: #E8F5E9; color: #2E7D32;",
+                        "gray": "background-color: #F5F5F5; color: #424242;",
+                        "blue": "background-color: #E3F2FD; color: #1565C0;"
+                    }.get(log["color"], "background-color: #FFFFFF;")
+                    
+                    st.markdown(f"""
+                    <div style="padding: 8px; margin-bottom: 4px; border-radius: 4px; {color_class}">
+                        <span style="font-weight: bold;">[{log['timestamp']}]</span>
+                        <span style="margin-left: 10px;">{log['message']}</span>
+                        <span style="float: right; color: #666; font-size: 12px;">{log['source']}</span>
+                    </div>
+                    """, unsafe_allow_html=True)
+        
+        with tab2:
+            gcs_log_container = st.container(height=300)
+            with gcs_log_container:
+                for log in st.session_state.comm_logs_gcs_to_fcu:
+                    st.code(log, language="plaintext")
+        
+        with tab3:
+            fcu_log_container = st.container(height=300)
+            with fcu_log_container:
+                for log in st.session_state.comm_logs_fcu_to_gcs:
+                    st.code(log, language="plaintext")
         
         # 自动刷新
         if st.session_state.flight_sim_running:
