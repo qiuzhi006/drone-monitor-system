@@ -374,7 +374,9 @@ def create_complete_map(lat_a, lon_a, lat_b, lon_b, obstacles, flight_height, sa
 # ==================== 航线规划页面 ====================
 if st.session_state.page == "航线规划":
     st.title("🗺️ 航线规划 + 障碍物圈选")
-        with st.expander("📡 通信链路状态", expanded=False):
+    
+    # 新增：通信链路面板
+    with st.expander("📡 通信链路状态", expanded=False):
         show_communication_panel()
         show_mission_log()
 
@@ -497,7 +499,9 @@ if st.session_state.page == "航线规划":
                 st.session_state.drawn_polygon = coords[0][:-1]
 # ==================== 飞行监控页面 ====================
 elif st.session_state.page == "飞行监控":
-    st.title("📡 飞行实时画面 - 任务执行监控")   
+    st.title("📡 飞行实时画面 - 任务执行监控")
+    
+    # 新增：通信链路面板
     with st.expander("📡 通信链路状态与任务日志", expanded=False):
         show_communication_panel()
         show_mission_log()
