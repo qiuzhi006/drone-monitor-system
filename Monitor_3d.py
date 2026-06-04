@@ -877,5 +877,4 @@ def show_mission_log():
 # 将下面这段代码插入到航线规划页面中 st.title 的下一行：
 #
 # with st.expander("📡 通信链路状态", expanded=False):
-#     show_communication_panel()
 #     show_mission_log()
