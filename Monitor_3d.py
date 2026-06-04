@@ -82,54 +82,42 @@ def get_closest_point_on_segment(px, py, x1, y1, x2, y2):
     return x1 + t * dx, y1 + t * dy
 
 def perpendicular_point(px, py, x1, y1, x2, y2, offset_meters, direction='left'):
-    """
-    计算从点 (px, py) 沿航线法线方向偏移 offset_meters 米后的点
-    偏移量正确转换为经纬度增量
-    """
     dx = x2 - x1
     dy = y2 - y1
     length = math.hypot(dx, dy)
     if length == 0:
         return px + offset_meters, py + offset_meters
 
-    # 单位方向向量
     ux = dx / length
     uy = dy / length
 
-    # 法线方向（左手法则：(-uy, ux) 为左侧）
     perp_x = -uy
     perp_y = ux
     if direction == 'right':
         perp_x = uy
         perp_y = -ux
 
-    # 将偏移量（米）转换为经纬度偏移
-    # 纬度方向：1度 ≈ 111320 米
-    # 经度方向：1度 ≈ 111320 * cos(lat_rad) 米，这里取中心纬度
-    center_lat = py  # 使用当前点的纬度
+    center_lat = py
     lat_rad = math.radians(center_lat)
     meters_per_deg_lat = 111320.0
     meters_per_deg_lng = 111320.0 * math.cos(lat_rad)
 
-    # 偏移向量在经纬度坐标系下的分量
     delta_lng = offset_meters * perp_x / meters_per_deg_lng
     delta_lat = offset_meters * perp_y / meters_per_deg_lat
 
     return px + delta_lng, py + delta_lat
     
 def calculate_avoidance_waypoints(start, end, obstacles, flight_height, safe_radius, strategy, bypass_offset):
-    # 1. 筛选威胁障碍物
     threatening = []
     for obs in obstacles:
         if obs['height'] >= flight_height:
             coords = obs['coords']
             center_lng = sum(c[0] for c in coords) / len(coords)
             center_lat = sum(c[1] for c in coords) / len(coords)
-            # 计算最大半径
             max_r = max(math.hypot(c[0]-center_lng, c[1]-center_lat) for c in coords)
             threatening.append({
                 'center': (center_lng, center_lat),
-                'radius': max_r + safe_radius,  # 膨胀半径
+                'radius': max_r + safe_radius,
                 'coords': coords,
                 'height': obs['height']
             })
@@ -137,62 +125,37 @@ def calculate_avoidance_waypoints(start, end, obstacles, flight_height, safe_rad
     if strategy == 'direct' or not threatening:
         return [start, end]
 
-    # 2. 简单检测：点是否在膨胀圆内
-    def point_in_danger_zone(px, py):
-        for obs in threatening:
-            dist = math.hypot(px - obs['center'][0], py - obs['center'][1])
-            if dist < obs['radius']:
-                return True
-        return False
-
-    # 3. 生成绕行点：基于障碍物中心，在上方或下方生成明显的绕行路径
-    waypoints = []
-    
-    # 找出所有有威胁的障碍物
-    # 按距离起点排序
     threatening.sort(key=lambda obs: math.hypot(obs['center'][0]-start[0], obs['center'][1]-start[1]))
     
-    # 对每个障碍物，生成3个固定绕行点
     all_detour_points = []
     for obs in threatening:
         center = obs['center']
-        # 绕行距离：障碍物半径 + 额外安全余量
         detour_distance = obs['radius'] + bypass_offset * 2
         
-        # 计算垂直于航线的方向
         dx = end[0] - start[0]
         dy = end[1] - start[1]
         length = math.hypot(dx, dy)
         if length == 0:
             continue
         
-        # 垂直向量（逆时针90度）
         perp_x = -dy / length
         perp_y = dx / length
         
-        # 决定方向
         if strategy == 'left':
             direction_mult = 1
         elif strategy == 'right':
             direction_mult = -1
         else:
-            # 默认向左（上方）
             direction_mult = 1
         
-        # 生成3个绕行点，形成三角绕行路径
         detour_lat_rad = math.radians(center[1])
         meters_per_deg_lat = 111320.0
         meters_per_deg_lng = 111320.0 * math.cos(detour_lat_rad)
         
-        # 绕行点1：障碍物前方
         lng1 = center[0] + (perp_x * detour_distance * direction_mult) / meters_per_deg_lng
         lat1 = center[1] + (perp_y * detour_distance * direction_mult) / meters_per_deg_lat
-        
-        # 绕行点2：障碍物正上方/下方
         lng2 = center[0] + (perp_x * detour_distance * 1.5 * direction_mult) / meters_per_deg_lng
         lat2 = center[1] + (perp_y * detour_distance * 1.5 * direction_mult) / meters_per_deg_lat
-        
-        # 绕行点3：障碍物后方
         lng3 = center[0] + (perp_x * detour_distance * direction_mult) / meters_per_deg_lng
         lat3 = center[1] + (perp_y * detour_distance * direction_mult) / meters_per_deg_lat
         
@@ -200,11 +163,8 @@ def calculate_avoidance_waypoints(start, end, obstacles, flight_height, safe_rad
         all_detour_points.append((lng2, lat2))
         all_detour_points.append((lng3, lat3))
     
-    # 4. 构建最终路径：起点 -> 绕行点（按离起点距离排序） -> 终点
     if all_detour_points:
-        # 按离起点的距离排序绕行点
         all_detour_points.sort(key=lambda p: math.hypot(p[0]-start[0], p[1]-start[1]))
-        
         waypoints = [start] + all_detour_points + [end]
     else:
         waypoints = [start, end]
@@ -217,7 +177,6 @@ def show_communication_panel():
     
     st.subheader("🔗 通信链路拓扑")
     
-    # 三设备状态卡片
     col1, col2, col3 = st.columns(3)
     with col1:
         st.info("**🖥 GCS 地面站**")
@@ -235,14 +194,12 @@ def show_communication_panel():
         st.caption("PWM/SPI")
         st.success("✅ 在线")
     
-    # 数据流方向
     st.markdown("**📨 数据流方向**")
     st.caption("📤 上行: GCS → OBC → FCU (任务上传/模式切换)")
     st.caption("📥 下行: FCU → OBC → GCS (遥测/航点上报)")
     
     st.divider()
     
-    # 链路统计指标
     st.subheader("📊 链路统计")
     metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
     metric_col1.metric("GCS → OBC", "正常", "✅")
@@ -255,7 +212,6 @@ def show_mission_log():
     """显示任务通信日志"""
     st.subheader("📋 任务通信日志")
     
-    # 通信日志数据（基于之前的分析）
     log_data = pd.DataFrame([
         ("15:03:08", "FCU→OBC→GCS", "ACK", "Mode: AUTO"),
         ("15:03:10", "FCU→OBC→GCS", "WP_REACHED", "#1"),
@@ -272,7 +228,6 @@ def show_mission_log():
     
     st.dataframe(log_data, use_container_width=True, hide_index=True)
     
-    # 任务摘要
     st.caption("📊 任务摘要：9个航点 | 总耗时43秒 | 最长航段 #5→#6 (21秒)")
     st.success("✅ AUTO模式工作正常，通信链路稳定，无丢包")
 
@@ -304,7 +259,6 @@ if "pending_polygon" not in st.session_state:
 if "drawn_polygon" not in st.session_state:
     st.session_state.drawn_polygon = []
 
-# 飞行模拟相关
 if "flight_sim_running" not in st.session_state:
     st.session_state.flight_sim_running = False
 if "flight_sim_start_time" not in st.session_state:
@@ -440,7 +394,6 @@ def create_complete_map(lat_a, lon_a, lat_b, lon_b, obstacles, flight_height, sa
 if st.session_state.page == "航线规划":
     st.title("🗺️ 航线规划 + 障碍物圈选")
     
-    # 新增：通信链路面板
     with st.expander("📡 通信链路状态", expanded=False):
         show_communication_panel()
         show_mission_log()
@@ -531,7 +484,6 @@ if st.session_state.page == "航线规划":
             else:
                 st.error("请先在地图上绘制一个多边形（至少3个顶点）")
 
-    # 坐标转换
     if is_gcj02:
         lat_a_display, lon_a_display = lat_a_input, lon_a_input
         lat_b_display, lon_b_display = lat_b_input, lon_b_input
@@ -567,12 +519,10 @@ if st.session_state.page == "航线规划":
 elif st.session_state.page == "飞行监控":
     st.title("📡 飞行实时画面 - 任务执行监控")
     
-    # 新增：通信链路面板
     with st.expander("📡 通信链路状态与任务日志", expanded=False):
         show_communication_panel()
         show_mission_log()
     
-    # 计算总距离和各航段距离
     def calculate_distances(waypoints):
         total = 0
         segment_distances = []
@@ -590,7 +540,6 @@ elif st.session_state.page == "飞行监控":
             total += distance
         return total, segment_distances
     
-    # 侧边栏控制
     with st.sidebar:
         st.divider()
         st.header("🎮 飞行控制")
@@ -651,11 +600,9 @@ elif st.session_state.page == "飞行监控":
         if total_dist > 0:
             st.caption(f"总距离: {total_dist:.1f} 米")
     
-    # 主界面
     if len(waypoints) == 0:
         st.warning("⚠️ 请先在侧边栏点击「📐 导入当前航线」按钮，加载航线规划结果")
     else:
-        # 计算当前位置
         if st.session_state.flight_sim_running:
             elapsed_time = time.time() - st.session_state.flight_sim_start_time
             current_speed = st.session_state.flight_sim_speed
@@ -682,4 +629,55 @@ elif st.session_state.page == "飞行监控":
             p1 = waypoints[current_index]
             p2_index = min(current_index + 1, len(waypoints) - 1)
             p2 = waypoints[p2_index]
-            current_lng = p1[0] + (p2
+            current_lng = p1[0] + (p2[0] - p1[0]) * segment_progress
+            current_lat = p1[1] + (p2[1] - p1[1]) * segment_progress
+            
+            remaining_distance = max(0, total_dist - flown_distance)
+            remaining_time = remaining_distance / current_speed if current_speed > 0 else 9999
+            
+            total_battery_time = 1800
+            battery_remaining = max(0, 100 * (1 - min(elapsed_time, total_battery_time) / total_battery_time))
+            
+            hours = int(elapsed_time // 3600)
+            minutes = int((elapsed_time % 3600) // 60)
+            seconds = int(elapsed_time % 60)
+            elapsed_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}" if hours > 0 else f"{minutes:02d}:{seconds:02d}"
+            
+            if remaining_time >= 3600:
+                rem_hours = int(remaining_time // 3600)
+                rem_minutes = int((remaining_time % 3600) // 60)
+                rem_seconds = int(remaining_time % 60)
+                remaining_str = f"{rem_hours:02d}:{rem_minutes:02d}:{rem_seconds:02d}"
+            elif remaining_time >= 0:
+                rem_minutes = int(remaining_time // 60)
+                rem_seconds = int(remaining_time % 60)
+                remaining_str = f"{rem_minutes:02d}:{rem_seconds:02d}"
+            else:
+                remaining_str = "00:00"
+            
+            arrival_time = datetime.now() + timedelta(seconds=remaining_time)
+            arrival_str = arrival_time.strftime("%H:%M:%S")
+        else:
+            current_lng = waypoints[0][0]
+            current_lat = waypoints[0][1]
+            flown_distance = 0
+            remaining_distance = total_dist
+            current_speed = 0
+            elapsed_str = "00:00"
+            remaining_str = "00:00"
+            battery_remaining = 100
+            arrival_str = "--:--:--"
+            current_index = 0
+        
+        col_map, col_panel = st.columns([3, 1])
+        
+        with col_map:
+            st.subheader("🗺️ 实时飞行地图")
+            
+            center_lat = (waypoints[0][1] + waypoints[-1][1]) / 2
+            center_lng = (waypoints[0][0] + waypoints[-1][0]) / 2
+            
+            m = folium.Map(
+                location=[center_lat, center_lng],
+                zoom_start=17,
+                tiles='
